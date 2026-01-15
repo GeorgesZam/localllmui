@@ -1,4 +1,4 @@
-name: Build Windows App
+name: Build Windows App with LLM
 
 on:
   push:
@@ -18,13 +18,25 @@ jobs:
         with:
           python-version: '3.11'
       
-      - name: Install PyInstaller
-        run: pip install pyinstaller
+      - name: Install dependencies
+        run: |
+          pip install pyinstaller
+          pip install llama-cpp-python --prefer-binary
+      
+      - name: Create models directory
+        run: mkdir -p src/models
+        shell: bash
+      
+      - name: Download SmolLM model
+        run: |
+          cd src/models
+          curl -L -o smollm-135m.Q4_K_M.gguf https://huggingface.co/Qwen/Qwen2-0.5B-Instruct-GGUF/resolve/main/qwen2-0_5b-instruct-q4_k_m.gguf
+        shell: bash
       
       - name: Build EXE
         run: |
           cd src
-          pyinstaller --onefile --windowed --name "LLMLocalUI" main.py
+          pyinstaller --onefile --windowed --name "LLMLocalUI" --add-data "models;models" main.py
       
       - name: Upload Windows EXE
         uses: actions/upload-artifact@v4
