@@ -1,273 +1,202 @@
 import tkinter as tk
-from tkinter import ttk, scrolledtext, messagebox
-import subprocess
+from tkinter import ttk, scrolledtext
 import threading
-import json
 import os
+import sys
 
 
-class OllamaLocalUI:
+def resource_path(relative_path):
+    """Chemin compatible PyInstaller"""
+    if hasattr(sys, '_MEIPASS'):
+        return os.path.join(sys._MEIPASS, relative_path)
+    return os.path.join(os.path.abspath("."), relative_path)
+
+
+class GemmaChat:
     def __init__(self, root):
         self.root = root
-        self.root.title("LLM Local UI")
-        self.root.geometry("900x700")
-        self.root.configure(bg="#1e1e1e")
-        self.root.minsize(800, 600)
+        self.root.title("Gemma 3 - Local Chat")
+        self.root.geometry("800x600")
+        self.root.configure(bg="#1a1a2e")
         
-        self.current_model = tk.StringVar(value="llama3.2")
+        self.llm = None
         self.is_generating = False
-        self.conversation_history = []
         
-        self.setup_styles()
-        self.create_widgets()
-        self.check_ollama_status()
+        self.create_ui()
+        self.load_model()
     
-    def setup_styles(self):
-        style = ttk.Style()
-        style.theme_use("clam")
+    def create_ui(self):
+        # Couleurs
+        bg = "#1a1a2e"
+        fg = "#eaeaea"
+        accent = "#4a9eff"
         
-        self.bg_dark = "#1e1e1e"
-        self.bg_medium = "#2d2d2d"
-        self.bg_light = "#3c3c3c"
-        self.fg_white = "#ffffff"
-        self.fg_gray = "#b0b0b0"
-        self.accent = "#4a9eff"
-        self.success = "#4caf50"
-        self.error = "#f44336"
+        # Header
+        header = tk.Frame(self.root, bg=bg)
+        header.pack(fill=tk.X, padx=20, pady=15)
         
-        style.configure("TFrame", background=self.bg_dark)
-        style.configure("TLabel", background=self.bg_dark, foreground=self.fg_white, font=("Segoe UI", 10))
-        style.configure("Title.TLabel", font=("Segoe UI", 18, "bold"))
-        style.configure("Status.TLabel", font=("Segoe UI", 9))
-        style.configure("TButton", font=("Segoe UI", 10))
-        style.configure("TCombobox", font=("Segoe UI", 10))
-    
-    def create_widgets(self):
-        header_frame = ttk.Frame(self.root)
-        header_frame.pack(fill=tk.X, padx=20, pady=(20, 10))
+        tk.Label(
+            header, 
+            text="💎 Gemma 3 Local", 
+            font=("Arial", 20, "bold"),
+            bg=bg, 
+            fg=fg
+        ).pack(side=tk.LEFT)
         
-        title_label = ttk.Label(header_frame, text="🤖 LLM Local UI", style="Title.TLabel")
-        title_label.pack(side=tk.LEFT)
-        
-        self.status_frame = tk.Frame(header_frame, bg=self.bg_dark)
-        self.status_frame.pack(side=tk.RIGHT)
-        
-        self.status_dot = tk.Canvas(self.status_frame, width=12, height=12, bg=self.bg_dark, highlightthickness=0)
-        self.status_dot.pack(side=tk.LEFT, padx=(0, 5))
-        self.status_indicator = self.status_dot.create_oval(2, 2, 10, 10, fill=self.fg_gray)
-        
-        self.status_label = ttk.Label(self.status_frame, text="Vérification...", style="Status.TLabel")
-        self.status_label.pack(side=tk.LEFT)
-        
-        model_frame = ttk.Frame(self.root)
-        model_frame.pack(fill=tk.X, padx=20, pady=10)
-        
-        ttk.Label(model_frame, text="Modèle:").pack(side=tk.LEFT, padx=(0, 10))
-        
-        self.model_combo = ttk.Combobox(
-            model_frame, 
-            textvariable=self.current_model,
-            values=["llama3.2", "llama3.1", "mistral", "codellama", "phi3", "gemma2"],
-            state="readonly",
-            width=20
+        self.status_label = tk.Label(
+            header,
+            text="⏳ Chargement...",
+            font=("Arial", 11),
+            bg=bg,
+            fg="#888"
         )
-        self.model_combo.pack(side=tk.LEFT, padx=(0, 10))
+        self.status_label.pack(side=tk.RIGHT)
         
-        self.refresh_btn = ttk.Button(model_frame, text="🔄 Rafraîchir", command=self.refresh_models)
-        self.refresh_btn.pack(side=tk.LEFT, padx=(0, 10))
-        
-        self.clear_btn = ttk.Button(model_frame, text="🗑️ Effacer", command=self.clear_conversation)
-        self.clear_btn.pack(side=tk.LEFT)
-        
-        chat_frame = ttk.Frame(self.root)
+        # Zone de chat
+        chat_frame = tk.Frame(self.root, bg=bg)
         chat_frame.pack(fill=tk.BOTH, expand=True, padx=20, pady=10)
         
-        self.chat_display = scrolledtext.ScrolledText(
+        self.chat = scrolledtext.ScrolledText(
             chat_frame,
             wrap=tk.WORD,
             font=("Consolas", 11),
-            bg=self.bg_medium,
-            fg=self.fg_white,
-            insertbackground=self.fg_white,
-            selectbackground=self.accent,
-            relief=tk.FLAT,
-            padx=15,
-            pady=15
-        )
-        self.chat_display.pack(fill=tk.BOTH, expand=True)
-        self.chat_display.config(state=tk.DISABLED)
-        
-        self.chat_display.tag_configure("user", foreground=self.accent, font=("Consolas", 11, "bold"))
-        self.chat_display.tag_configure("assistant", foreground=self.success, font=("Consolas", 11, "bold"))
-        self.chat_display.tag_configure("error", foreground=self.error)
-        self.chat_display.tag_configure("system", foreground=self.fg_gray, font=("Consolas", 9, "italic"))
-        
-        input_frame = ttk.Frame(self.root)
-        input_frame.pack(fill=tk.X, padx=20, pady=(0, 20))
-        
-        self.input_text = tk.Text(
-            input_frame,
-            height=3,
-            font=("Consolas", 11),
-            bg=self.bg_light,
-            fg=self.fg_white,
-            insertbackground=self.fg_white,
+            bg="#16213e",
+            fg=fg,
+            insertbackground=fg,
             relief=tk.FLAT,
             padx=10,
             pady=10
         )
-        self.input_text.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 10))
-        self.input_text.bind("<Return>", self.on_enter_pressed)
-        self.input_text.bind("<Shift-Return>", lambda e: None)
+        self.chat.pack(fill=tk.BOTH, expand=True)
+        self.chat.config(state=tk.DISABLED)
         
-        self.send_btn = ttk.Button(input_frame, text="Envoyer ➤", command=self.send_message, width=12)
-        self.send_btn.pack(side=tk.RIGHT, fill=tk.Y)
+        # Tags
+        self.chat.tag_configure("user", foreground=accent, font=("Consolas", 11, "bold"))
+        self.chat.tag_configure("bot", foreground="#50fa7b", font=("Consolas", 11, "bold"))
+        self.chat.tag_configure("system", foreground="#888", font=("Consolas", 10, "italic"))
         
-        self.append_to_chat("Système", "Bienvenue ! Assurez-vous qu'Ollama est installé et lancé.\n", "system")
+        # Zone input
+        input_frame = tk.Frame(self.root, bg=bg)
+        input_frame.pack(fill=tk.X, padx=20, pady=15)
+        
+        self.input_box = tk.Text(
+            input_frame,
+            height=2,
+            font=("Consolas", 11),
+            bg="#16213e",
+            fg=fg,
+            insertbackground=fg,
+            relief=tk.FLAT,
+            padx=10,
+            pady=8
+        )
+        self.input_box.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 10))
+        self.input_box.bind("<Return>", self.on_enter)
+        
+        self.send_btn = tk.Button(
+            input_frame,
+            text="Envoyer",
+            font=("Arial", 11, "bold"),
+            bg=accent,
+            fg="white",
+            relief=tk.FLAT,
+            padx=20,
+            pady=8,
+            command=self.send
+        )
+        self.send_btn.pack(side=tk.RIGHT)
+        
+        self.add_message("Système", "Chargement de Gemma 3...", "system")
     
-    def check_ollama_status(self):
-        def check():
+    def load_model(self):
+        def _load():
             try:
-                creationflags = subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0
-                result = subprocess.run(
-                    ["ollama", "list"],
-                    capture_output=True,
-                    text=True,
-                    timeout=5,
-                    creationflags=creationflags
+                from llama_cpp import Llama
+                
+                model_file = resource_path("models/gemma3.gguf")
+                
+                if not os.path.exists(model_file):
+                    self.root.after(0, lambda: self.status_label.config(text="❌ Modèle introuvable"))
+                    self.root.after(0, lambda: self.add_message("Système", f"Erreur: {model_file} non trouvé", "system"))
+                    return
+                
+                self.llm = Llama(
+                    model_path=model_file,
+                    n_ctx=2048,
+                    n_threads=4,
+                    verbose=False
                 )
-                if result.returncode == 0:
-                    self.root.after(0, lambda: self.update_status(True, "Ollama connecté"))
-                    models = self.parse_ollama_list(result.stdout)
-                    if models:
-                        self.root.after(0, lambda: self.update_models(models))
-                else:
-                    self.root.after(0, lambda: self.update_status(False, "Ollama non disponible"))
-            except FileNotFoundError:
-                self.root.after(0, lambda: self.update_status(False, "Ollama non installé"))
-            except subprocess.TimeoutExpired:
-                self.root.after(0, lambda: self.update_status(False, "Timeout"))
+                
+                self.root.after(0, lambda: self.status_label.config(text="✅ Prêt"))
+                self.root.after(0, lambda: self.add_message("Système", "Gemma 3 chargé ! Posez vos questions.", "system"))
+                
             except Exception as e:
-                self.root.after(0, lambda: self.update_status(False, "Erreur"))
+                self.root.after(0, lambda: self.status_label.config(text="❌ Erreur"))
+                self.root.after(0, lambda: self.add_message("Système", f"Erreur: {str(e)}", "system"))
         
-        threading.Thread(target=check, daemon=True).start()
+        threading.Thread(target=_load, daemon=True).start()
     
-    def parse_ollama_list(self, output):
-        models = []
-        lines = output.strip().split('\n')
-        for line in lines[1:]:
-            if line.strip():
-                model_name = line.split()[0].split(':')[0]
-                if model_name and model_name not in models:
-                    models.append(model_name)
-        return models
+    def add_message(self, sender, text, tag=""):
+        self.chat.config(state=tk.NORMAL)
+        self.chat.insert(tk.END, f"\n{sender}:\n", tag)
+        self.chat.insert(tk.END, f"{text}\n")
+        self.chat.config(state=tk.DISABLED)
+        self.chat.see(tk.END)
     
-    def update_status(self, connected, message):
-        color = self.success if connected else self.error
-        self.status_dot.itemconfig(self.status_indicator, fill=color)
-        self.status_label.config(text=message)
+    def stream_text(self, text):
+        self.chat.config(state=tk.NORMAL)
+        self.chat.insert(tk.END, text)
+        self.chat.config(state=tk.DISABLED)
+        self.chat.see(tk.END)
     
-    def update_models(self, models):
-        self.model_combo['values'] = models
-        if models and self.current_model.get() not in models:
-            self.current_model.set(models[0])
-    
-    def refresh_models(self):
-        self.update_status(False, "Actualisation...")
-        self.check_ollama_status()
-    
-    def clear_conversation(self):
-        self.chat_display.config(state=tk.NORMAL)
-        self.chat_display.delete(1.0, tk.END)
-        self.chat_display.config(state=tk.DISABLED)
-        self.conversation_history.clear()
-        self.append_to_chat("Système", "Conversation effacée.\n", "system")
-    
-    def append_to_chat(self, sender, message, tag=""):
-        self.chat_display.config(state=tk.NORMAL)
-        if sender:
-            self.chat_display.insert(tk.END, f"\n{sender}:\n", tag)
-        self.chat_display.insert(tk.END, f"{message}\n")
-        self.chat_display.config(state=tk.DISABLED)
-        self.chat_display.see(tk.END)
-    
-    def stream_to_chat(self, text):
-        self.chat_display.config(state=tk.NORMAL)
-        self.chat_display.insert(tk.END, text)
-        self.chat_display.config(state=tk.DISABLED)
-        self.chat_display.see(tk.END)
-    
-    def on_enter_pressed(self, event):
-        if not event.state & 0x1:
-            self.send_message()
+    def on_enter(self, event):
+        if not (event.state & 0x1):  # Shift not pressed
+            self.send()
             return "break"
     
-    def send_message(self):
-        if self.is_generating:
+    def send(self):
+        if self.is_generating or not self.llm:
             return
         
-        message = self.input_text.get("1.0", tk.END).strip()
-        if not message:
+        msg = self.input_box.get("1.0", tk.END).strip()
+        if not msg:
             return
         
-        self.input_text.delete("1.0", tk.END)
-        self.append_to_chat("Vous", message, "user")
-        self.conversation_history.append({"role": "user", "content": message})
+        self.input_box.delete("1.0", tk.END)
+        self.add_message("Vous", msg, "user")
         
         self.is_generating = True
         self.send_btn.config(state=tk.DISABLED)
         
-        threading.Thread(target=self.generate_response, args=(message,), daemon=True).start()
+        threading.Thread(target=self.generate, args=(msg,), daemon=True).start()
     
-    def generate_response(self, message):
-        model = self.current_model.get()
-        self.root.after(0, lambda: self.append_to_chat("Assistant", "", "assistant"))
+    def generate(self, msg):
+        self.root.after(0, lambda: self.add_message("Gemma", "", "bot"))
         
         try:
-            creationflags = subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0
-            process = subprocess.Popen(
-                ["ollama", "run", model],
-                stdin=subprocess.PIPE,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-                bufsize=1,
-                creationflags=creationflags
-            )
+            prompt = f"<start_of_turn>user\n{msg}<end_of_turn>\n<start_of_turn>model\n"
             
-            process.stdin.write(message + "\n")
-            process.stdin.flush()
-            process.stdin.close()
-            
-            full_response = ""
-            for line in process.stdout:
-                if line:
-                    full_response += line
-                    self.root.after(0, lambda l=line: self.stream_to_chat(l))
-            
-            process.wait()
-            
-            if full_response.strip():
-                self.conversation_history.append({"role": "assistant", "content": full_response.strip()})
-            
-        except FileNotFoundError:
-            self.root.after(0, lambda: self.append_to_chat("", "❌ Ollama n'est pas installé.\n", "error"))
+            for chunk in self.llm(
+                prompt,
+                max_tokens=512,
+                stop=["<end_of_turn>"],
+                stream=True
+            ):
+                token = chunk["choices"][0]["text"]
+                self.root.after(0, lambda t=token: self.stream_text(t))
+                
         except Exception as e:
-            self.root.after(0, lambda: self.append_to_chat("", f"❌ Erreur: {str(e)}\n", "error"))
+            self.root.after(0, lambda: self.add_message("Système", f"Erreur: {str(e)}", "system"))
         finally:
-            self.root.after(0, self.generation_complete)
+            self.root.after(0, self.done)
     
-    def generation_complete(self):
+    def done(self):
         self.is_generating = False
         self.send_btn.config(state=tk.NORMAL)
-        self.input_text.focus_set()
-
-
-def main():
-    root = tk.Tk()
-    app = OllamaLocalUI(root)
-    root.mainloop()
+        self.input_box.focus_set()
 
 
 if __name__ == "__main__":
-    main()
+    root = tk.Tk()
+    app = GemmaChat(root)
+    root.mainloop()
