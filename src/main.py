@@ -12,10 +12,10 @@ def resource_path(relative_path):
     return os.path.join(os.path.abspath("."), relative_path)
 
 
-class GemmaChat:
+class LocalChat:
     def __init__(self, root):
         self.root = root
-        self.root.title("Gemma 3 - Local Chat")
+        self.root.title("Local Chat - Qwen2")
         self.root.geometry("800x600")
         self.root.configure(bg="#1a1a2e")
         
@@ -26,7 +26,6 @@ class GemmaChat:
         self.load_model()
     
     def create_ui(self):
-        # Couleurs
         bg = "#1a1a2e"
         fg = "#eaeaea"
         accent = "#4a9eff"
@@ -37,7 +36,7 @@ class GemmaChat:
         
         tk.Label(
             header, 
-            text="💎 Gemma 3 Local", 
+            text="🤖 Local Chat", 
             font=("Arial", 20, "bold"),
             bg=bg, 
             fg=fg
@@ -52,7 +51,7 @@ class GemmaChat:
         )
         self.status_label.pack(side=tk.RIGHT)
         
-        # Zone de chat
+        # Chat
         chat_frame = tk.Frame(self.root, bg=bg)
         chat_frame.pack(fill=tk.BOTH, expand=True, padx=20, pady=10)
         
@@ -70,12 +69,11 @@ class GemmaChat:
         self.chat.pack(fill=tk.BOTH, expand=True)
         self.chat.config(state=tk.DISABLED)
         
-        # Tags
         self.chat.tag_configure("user", foreground=accent, font=("Consolas", 11, "bold"))
         self.chat.tag_configure("bot", foreground="#50fa7b", font=("Consolas", 11, "bold"))
         self.chat.tag_configure("system", foreground="#888", font=("Consolas", 10, "italic"))
         
-        # Zone input
+        # Input
         input_frame = tk.Frame(self.root, bg=bg)
         input_frame.pack(fill=tk.X, padx=20, pady=15)
         
@@ -106,29 +104,29 @@ class GemmaChat:
         )
         self.send_btn.pack(side=tk.RIGHT)
         
-        self.add_message("Système", "Chargement de Gemma 3...", "system")
+        self.add_message("Système", "Chargement du modèle...", "system")
     
     def load_model(self):
         def _load():
             try:
                 from llama_cpp import Llama
                 
-                model_file = resource_path("models/gemma3.gguf")
+                model_file = resource_path("models/model.gguf")
                 
                 if not os.path.exists(model_file):
                     self.root.after(0, lambda: self.status_label.config(text="❌ Modèle introuvable"))
-                    self.root.after(0, lambda: self.add_message("Système", f"Erreur: {model_file} non trouvé", "system"))
+                    self.root.after(0, lambda: self.add_message("Système", f"Fichier non trouvé: {model_file}", "system"))
                     return
                 
                 self.llm = Llama(
                     model_path=model_file,
-                    n_ctx=2048,
+                    n_ctx=1024,
                     n_threads=4,
                     verbose=False
                 )
                 
                 self.root.after(0, lambda: self.status_label.config(text="✅ Prêt"))
-                self.root.after(0, lambda: self.add_message("Système", "Gemma 3 chargé ! Posez vos questions.", "system"))
+                self.root.after(0, lambda: self.add_message("Système", "Modèle chargé ! Posez vos questions.", "system"))
                 
             except Exception as e:
                 self.root.after(0, lambda: self.status_label.config(text="❌ Erreur"))
@@ -150,7 +148,7 @@ class GemmaChat:
         self.chat.see(tk.END)
     
     def on_enter(self, event):
-        if not (event.state & 0x1):  # Shift not pressed
+        if not (event.state & 0x1):
             self.send()
             return "break"
     
@@ -171,15 +169,15 @@ class GemmaChat:
         threading.Thread(target=self.generate, args=(msg,), daemon=True).start()
     
     def generate(self, msg):
-        self.root.after(0, lambda: self.add_message("Gemma", "", "bot"))
+        self.root.after(0, lambda: self.add_message("Assistant", "", "bot"))
         
         try:
-            prompt = f"<start_of_turn>user\n{msg}<end_of_turn>\n<start_of_turn>model\n"
+            prompt = f"<|im_start|>user\n{msg}<|im_end|>\n<|im_start|>assistant\n"
             
             for chunk in self.llm(
                 prompt,
-                max_tokens=512,
-                stop=["<end_of_turn>"],
+                max_tokens=256,
+                stop=["<|im_end|>"],
                 stream=True
             ):
                 token = chunk["choices"][0]["text"]
@@ -198,5 +196,5 @@ class GemmaChat:
 
 if __name__ == "__main__":
     root = tk.Tk()
-    app = GemmaChat(root)
+    app = LocalChat(root)
     root.mainloop()

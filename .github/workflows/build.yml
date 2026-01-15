@@ -1,4 +1,4 @@
-name: Build Gemma Chat
+name: Build Local Chat
 
 on:
   push:
@@ -21,18 +21,18 @@ jobs:
           pip install pyinstaller
           pip install llama-cpp-python --prefer-binary
       
-      - name: Download Gemma 3
+      - name: Download model
         run: |
           mkdir src\models
-          curl -L -o src\models\gemma3.gguf https://huggingface.co/unsloth/gemma-3-1b-it-GGUF/resolve/main/gemma-3-1b-it-Q4_K_M.gguf
+          curl -L -o src\models\model.gguf https://huggingface.co/Qwen/Qwen2-0.5B-Instruct-GGUF/resolve/main/qwen2-0_5b-instruct-q4_k_m.gguf
         shell: cmd
       
       - name: Build
         run: |
           cd src
-          pyinstaller --onefile --windowed --name "GemmaChat" --add-data "models;models" main.py
+          pyinstaller --onefile --windowed --name "LocalChat" --add-data "models;models" main.py
       
       - uses: actions/upload-artifact@v4
         with:
-          name: GemmaChat-Windows
+          name: LocalChat-Windows
           path: src/dist/*.exe
