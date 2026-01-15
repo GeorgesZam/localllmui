@@ -5,7 +5,7 @@ import os
 import sys
 import traceback
 
-
+ 
 def resource_path(relative_path):
     """Chemin compatible PyInstaller"""
     if hasattr(sys, '_MEIPASS'):
