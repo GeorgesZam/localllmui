@@ -28,7 +28,7 @@ jobs:
         shell: bash
       
       - name: Build
-        run: pyinstaller --onefile --windowed --name "LocalChat" --add-data "models/model.gguf;models" src/main.py
+        run: pyinstaller --onefile --windowed --name "LocalChat" --add-data "models/model.gguf;models" --collect-all llama_cpp --hidden-import llama_cpp src/main.py
       
       - uses: actions/upload-artifact@v4
         with:
