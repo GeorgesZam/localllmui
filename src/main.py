@@ -3,18 +3,22 @@ from tkinter import scrolledtext
 import threading
 import os
 import sys
+import traceback
 
 
 def resource_path(relative_path):
+    """Chemin compatible PyInstaller"""
     if hasattr(sys, '_MEIPASS'):
-        return os.path.join(sys._MEIPASS, relative_path)
-    return os.path.join(os.path.abspath("."), relative_path)
+        base = sys._MEIPASS
+    else:
+        base = os.path.abspath(".")
+    return os.path.join(base, relative_path)
 
 
 class LocalChat:
     def __init__(self, root):
         self.root = root
-        self.root.title("Local Chat")
+        self.root.title("Local Chat - Debug")
         self.root.geometry("800x600")
         self.root.configure(bg="#1a1a2e")
         
@@ -50,6 +54,8 @@ class LocalChat:
         self.chat.tag_configure("user", foreground=accent, font=("Consolas", 11, "bold"))
         self.chat.tag_configure("bot", foreground="#50fa7b", font=("Consolas", 11, "bold"))
         self.chat.tag_configure("system", foreground="#888", font=("Consolas", 10, "italic"))
+        self.chat.tag_configure("error", foreground="#ff5555", font=("Consolas", 10))
+        self.chat.tag_configure("debug", foreground="#ffb86c", font=("Consolas", 9))
         
         input_frame = tk.Frame(self.root, bg=bg)
         input_frame.pack(fill=tk.X, padx=20, pady=15)
@@ -67,26 +73,78 @@ class LocalChat:
         )
         self.send_btn.pack(side=tk.RIGHT)
         
-        self.add_message("Système", "Chargement du modèle...", "system")
+        self.add_message("Système", "Démarrage...", "system")
     
     def load_model(self):
         def _load():
             try:
-                from llama_cpp import Llama
+                # Debug: afficher les chemins
+                self.root.after(0, lambda: self.add_message("Debug", f"sys._MEIPASS existe: {hasattr(sys, '_MEIPASS')}", "debug"))
                 
+                if hasattr(sys, '_MEIPASS'):
+                    self.root.after(0, lambda: self.add_message("Debug", f"_MEIPASS: {sys._MEIPASS}", "debug"))
+                
+                self.root.after(0, lambda: self.add_message("Debug", f"CWD: {os.getcwd()}", "debug"))
+                self.root.after(0, lambda: self.add_message("Debug", f"EXE: {sys.executable}", "debug"))
+                
+                # Lister le contenu de _MEIPASS ou CWD
+                base_path = sys._MEIPASS if hasattr(sys, '_MEIPASS') else os.path.abspath(".")
+                self.root.after(0, lambda: self.add_message("Debug", f"Base path: {base_path}", "debug"))
+                
+                try:
+                    files = os.listdir(base_path)
+                    self.root.after(0, lambda: self.add_message("Debug", f"Contenu base: {files[:10]}", "debug"))
+                except Exception as e:
+                    self.root.after(0, lambda: self.add_message("Debug", f"Erreur listdir base: {e}", "error"))
+                
+                # Chercher le dossier models
+                models_path = os.path.join(base_path, "models")
+                self.root.after(0, lambda: self.add_message("Debug", f"Models path: {models_path}", "debug"))
+                self.root.after(0, lambda: self.add_message("Debug", f"Models existe: {os.path.exists(models_path)}", "debug"))
+                
+                if os.path.exists(models_path):
+                    try:
+                        model_files = os.listdir(models_path)
+                        self.root.after(0, lambda: self.add_message("Debug", f"Contenu models: {model_files}", "debug"))
+                    except Exception as e:
+                        self.root.after(0, lambda: self.add_message("Debug", f"Erreur listdir models: {e}", "error"))
+                
+                # Import llama_cpp
+                self.root.after(0, lambda: self.add_message("Debug", "Import llama_cpp...", "debug"))
+                from llama_cpp import Llama
+                self.root.after(0, lambda: self.add_message("Debug", "Import OK", "debug"))
+                
+                # Chemin du modèle
                 model_file = resource_path("models/model.gguf")
+                self.root.after(0, lambda: self.add_message("Debug", f"Model file: {model_file}", "debug"))
+                self.root.after(0, lambda: self.add_message("Debug", f"Model existe: {os.path.exists(model_file)}", "debug"))
                 
                 if not os.path.exists(model_file):
                     self.root.after(0, lambda: self.status_label.config(text="❌ Modèle introuvable"))
+                    self.root.after(0, lambda: self.add_message("Erreur", f"Fichier non trouvé: {model_file}", "error"))
                     return
                 
-                self.llm = Llama(model_path=model_file, n_ctx=1024, n_threads=4, verbose=False)
+                # Taille du fichier
+                size_mb = os.path.getsize(model_file) / (1024 * 1024)
+                self.root.after(0, lambda: self.add_message("Debug", f"Taille modèle: {size_mb:.1f} MB", "debug"))
+                
+                # Charger le modèle
+                self.root.after(0, lambda: self.add_message("Debug", "Chargement du modèle...", "debug"))
+                
+                self.llm = Llama(
+                    model_path=model_file,
+                    n_ctx=1024,
+                    n_threads=4,
+                    verbose=False
+                )
                 
                 self.root.after(0, lambda: self.status_label.config(text="✅ Prêt"))
                 self.root.after(0, lambda: self.add_message("Système", "Modèle chargé ! Posez vos questions.", "system"))
                 
             except Exception as e:
+                error_msg = traceback.format_exc()
                 self.root.after(0, lambda: self.status_label.config(text="❌ Erreur"))
+                self.root.after(0, lambda: self.add_message("Erreur", error_msg, "error"))
         
         threading.Thread(target=_load, daemon=True).start()
     
@@ -135,7 +193,8 @@ class LocalChat:
                 self.root.after(0, lambda t=token: self.stream_text(t))
                 
         except Exception as e:
-            self.root.after(0, lambda: self.add_message("Système", f"Erreur: {str(e)}", "system"))
+            error_msg = traceback.format_exc()
+            self.root.after(0, lambda: self.add_message("Erreur", error_msg, "error"))
         finally:
             self.root.after(0, self.done)
     
