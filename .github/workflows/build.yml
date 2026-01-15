@@ -23,16 +23,14 @@ jobs:
       
       - name: Download model
         run: |
-          mkdir src\models
-          curl -L -o src\models\model.gguf https://huggingface.co/Qwen/Qwen2-0.5B-Instruct-GGUF/resolve/main/qwen2-0_5b-instruct-q4_k_m.gguf
-        shell: cmd
+          mkdir models
+          curl -L -o models/model.gguf https://huggingface.co/Qwen/Qwen2-0.5B-Instruct-GGUF/resolve/main/qwen2-0_5b-instruct-q4_k_m.gguf
+        shell: bash
       
       - name: Build
-        run: |
-          cd src
-          pyinstaller --onefile --windowed --name "LocalChat" --add-data "models;models" main.py
+        run: pyinstaller --onefile --windowed --name "LocalChat" --add-data "models;models" src/main.py
       
       - uses: actions/upload-artifact@v4
         with:
           name: LocalChat-Windows
-          path: src/dist/*.exe
+          path: dist/*.exe
