@@ -3,8 +3,16 @@ LLM Engine with RAG and conversation history.
 """
 
 import os
+import sys
 from typing import Iterator, Optional, Callable
 import config
+
+
+def get_resource_path(relative_path: str) -> str:
+    """Gets path compatible with PyInstaller."""
+    if hasattr(sys, '_MEIPASS'):
+        return os.path.join(sys._MEIPASS, relative_path)
+    return relative_path
 
 
 class RAG:
@@ -19,23 +27,25 @@ class RAG:
         if not config.RAG_ENABLED:
             return
         
-        folder = config.RAG_FOLDER
+        folder = get_resource_path(config.RAG_FOLDER)
+        
         if not os.path.exists(folder):
-            os.makedirs(folder)
             return
         
         for filename in os.listdir(folder):
             if filename.endswith(".txt"):
                 path = os.path.join(folder, filename)
-                with open(path, "r", encoding="utf-8") as f:
-                    text = f.read()
-                    # Split into chunks
-                    chunks = self._split_text(text, config.RAG_CHUNK_SIZE)
-                    for chunk in chunks:
-                        self.documents.append({
-                            "source": filename,
-                            "content": chunk
-                        })
+                try:
+                    with open(path, "r", encoding="utf-8") as f:
+                        text = f.read()
+                        chunks = self._split_text(text, config.RAG_CHUNK_SIZE)
+                        for chunk in chunks:
+                            self.documents.append({
+                                "source": filename,
+                                "content": chunk
+                            })
+                except:
+                    pass
     
     def _split_text(self, text: str, chunk_size: int) -> list:
         """Splits text into chunks."""
@@ -105,7 +115,7 @@ class LLMEngine:
             log("Importing llama_cpp...")
             from llama_cpp import Llama
             
-            model_path = self._get_model_path()
+            model_path = get_resource_path(config.MODEL_FILE)
             log(f"Model: {model_path}")
             
             if not os.path.exists(model_path):
@@ -128,35 +138,24 @@ class LLMEngine:
             log(f"Error: {e}")
             return False
     
-    def _get_model_path(self) -> str:
-        """Gets model path (PyInstaller compatible)."""
-        import sys
-        if hasattr(sys, '_MEIPASS'):
-            return os.path.join(sys._MEIPASS, config.MODEL_FILE)
-        return config.MODEL_FILE
-    
     def generate(self, message: str) -> Iterator[str]:
         """Generates response with RAG and history."""
         if not self.is_ready:
             return
         
-        # RAG context
         rag_context = self.rag.search(message) if config.RAG_ENABLED else ""
         
-        # Build history string
         history_str = ""
-        for h in self.history[-6:]:  # Last 3 exchanges
+        for h in self.history[-6:]:
             history_str += f"<|im_start|>user\n{h['user']}<|im_end|>\n"
             history_str += f"<|im_start|>assistant\n{h['assistant']}<|im_end|>\n"
         
-        # Full prompt
         system = config.SYSTEM_PROMPT + rag_context
         prompt = f"<|im_start|>system\n{system}<|im_end|>\n"
         prompt += history_str
         prompt += f"<|im_start|>user\n{message}<|im_end|>\n"
         prompt += "<|im_start|>assistant\n"
         
-        # Generate
         full_response = ""
         for chunk in self.llm(
             prompt,
@@ -168,7 +167,6 @@ class LLMEngine:
             full_response += token
             yield token
         
-        # Save to history
         self.history.append({
             "user": message,
             "assistant": full_response.strip()
