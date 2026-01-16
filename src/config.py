@@ -20,7 +20,7 @@ PROMPT_TEMPLATE = """<|im_start|>system
 {message}<|im_end|>
 <|im_start|>assistant
 """
-STOP_TOKENS = ["<|im_end|}"]
+STOP_TOKENS = ["<|im_end|>"]
 
 # === RAG ===
 RAG_ENABLED = True
