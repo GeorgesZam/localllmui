@@ -8,25 +8,22 @@ WINDOW_SIZE = "900x700"
 
 # === MODEL ===
 MODEL_FILE = "models/model.gguf"
-CONTEXT_SIZE = 2048
+CONTEXT_SIZE = 4096  # Increased for RAG context
 MAX_TOKENS = 512
 THREADS = 4
 
-# === PROMPT TEMPLATE (Qwen2 format) ===
-SYSTEM_PROMPT = "You are a helpful assistant. Answer in the same language as the user."
-PROMPT_TEMPLATE = """<|im_start|>system
-{system}<|im_end|>
-<|im_start|>user
-{message}<|im_end|>
-<|im_start|>assistant
-"""
+# === PROMPT ===
+SYSTEM_PROMPT = """You are a helpful assistant specialized in administrative documents. 
+Answer questions based on the provided context. If the answer is not in the context, say so.
+Answer in the same language as the user."""
+
 STOP_TOKENS = ["<|im_end|>"]
 
 # === RAG ===
 RAG_ENABLED = True
 RAG_FOLDER = "data"
-RAG_CHUNK_SIZE = 500
-RAG_TOP_K = 3
+RAG_CHUNK_SIZE = 300  # Smaller chunks for better precision
+RAG_TOP_K = 5  # More results for admin docs
 
 # === UI COLORS ===
 COLORS = {
