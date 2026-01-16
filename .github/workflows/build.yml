@@ -47,7 +47,7 @@ jobs:
 
   # === MACOS ===
   build-macos:
-    runs-on: macos-latest
+    runs-on: macos-14
     
     steps:
       - uses: actions/checkout@v4
@@ -56,10 +56,16 @@ jobs:
         with:
           python-version: '3.11'
       
+      - name: Install build tools
+        run: |
+          brew install cmake
+      
       - name: Install deps
+        env:
+          CMAKE_ARGS: "-DLLAMA_METAL=on"
         run: |
           pip install pyinstaller
-          pip install llama-cpp-python
+          pip install llama-cpp-python --no-cache-dir
           pip install sentence-transformers
           pip install numpy
       
@@ -71,7 +77,7 @@ jobs:
       - name: Create data folder
         run: mkdir data
       
-      - name: Build
+      - name: Build app
         run: |
           LLAMA_PATH=$(python -c "import llama_cpp; import os; print(os.path.dirname(llama_cpp.__file__))")
           cd src
@@ -85,12 +91,19 @@ jobs:
             --window-pos 200 120 \
             --window-size 600 400 \
             --icon-size 100 \
-            --icon "LocalChat.app" 150 185 \
             --app-drop-link 450 185 \
             "LocalChat.dmg" \
-            "src/dist/LocalChat.app"
+            "src/dist/LocalChat.app" || true
+          
+          # Fallback: zip if DMG fails
+          if [ ! -f "LocalChat.dmg" ]; then
+            cd src/dist
+            zip -r ../../LocalChat-macOS.zip LocalChat.app
+          fi
       
       - uses: actions/upload-artifact@v4
         with:
           name: LocalChat-macOS
-          path: "*.dmg"
+          path: |
+            *.dmg
+            *.zip
