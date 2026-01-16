@@ -30,10 +30,12 @@ jobs:
       - name: Create data folder
         run: mkdir data
       
-      - name: Build
+      - name: Find llama_cpp path and build
         run: |
+          $llamaPath = python -c "import llama_cpp; import os; print(os.path.dirname(llama_cpp.__file__))"
           cd src
-          pyinstaller --onefile --windowed --name "LocalChat" --add-data "../models;models" --add-data "../data;data" --collect-all llama_cpp main.py
+          pyinstaller --onefile --windowed --name "LocalChat" --add-data "../models;models" --add-data "../data;data" --add-data "$llamaPath;llama_cpp" --hidden-import llama_cpp main.py
+        shell: pwsh
       
       - uses: actions/upload-artifact@v4
         with:
