@@ -20,6 +20,8 @@ jobs:
         run: |
           pip install pyinstaller
           pip install llama-cpp-python --prefer-binary
+          pip install sentence-transformers
+          pip install numpy
       
       - name: Download model
         run: |
@@ -30,11 +32,11 @@ jobs:
       - name: Create data folder
         run: mkdir data
       
-      - name: Find llama_cpp path and build
+      - name: Find paths and build
         run: |
           $llamaPath = python -c "import llama_cpp; import os; print(os.path.dirname(llama_cpp.__file__))"
           cd src
-          pyinstaller --onefile --windowed --name "LocalChat" --add-data "../models;models" --add-data "../data;data" --add-data "$llamaPath;llama_cpp" --hidden-import llama_cpp main.py
+          pyinstaller --onefile --windowed --name "LocalChat" --add-data "../models;models" --add-data "../data;data" --add-data "$llamaPath;llama_cpp" --hidden-import llama_cpp --hidden-import sentence_transformers --collect-all sentence_transformers main.py
         shell: pwsh
       
       - uses: actions/upload-artifact@v4
