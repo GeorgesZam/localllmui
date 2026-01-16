@@ -6,7 +6,8 @@ on:
   workflow_dispatch:
 
 jobs:
-  build:
+  # === WINDOWS ===
+  build-windows:
     runs-on: windows-latest
     
     steps:
@@ -32,7 +33,7 @@ jobs:
       - name: Create data folder
         run: mkdir data
       
-      - name: Find paths and build
+      - name: Build
         run: |
           $llamaPath = python -c "import llama_cpp; import os; print(os.path.dirname(llama_cpp.__file__))"
           cd src
@@ -43,3 +44,53 @@ jobs:
         with:
           name: LocalChat-Windows
           path: src/dist/*.exe
+
+  # === MACOS ===
+  build-macos:
+    runs-on: macos-latest
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      
+      - name: Install deps
+        run: |
+          pip install pyinstaller
+          pip install llama-cpp-python
+          pip install sentence-transformers
+          pip install numpy
+      
+      - name: Download model
+        run: |
+          mkdir models
+          curl -L -o models/model.gguf https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct-GGUF/resolve/main/qwen2.5-1.5b-instruct-q4_k_m.gguf
+      
+      - name: Create data folder
+        run: mkdir data
+      
+      - name: Build
+        run: |
+          LLAMA_PATH=$(python -c "import llama_cpp; import os; print(os.path.dirname(llama_cpp.__file__))")
+          cd src
+          pyinstaller --onefile --windowed --name "LocalChat" --add-data "../models:models" --add-data "../data:data" --add-data "$LLAMA_PATH:llama_cpp" --hidden-import llama_cpp --hidden-import sentence_transformers --collect-all sentence_transformers main.py
+      
+      - name: Create DMG
+        run: |
+          brew install create-dmg
+          create-dmg \
+            --volname "LocalChat" \
+            --window-pos 200 120 \
+            --window-size 600 400 \
+            --icon-size 100 \
+            --icon "LocalChat.app" 150 185 \
+            --app-drop-link 450 185 \
+            "LocalChat.dmg" \
+            "src/dist/LocalChat.app"
+      
+      - uses: actions/upload-artifact@v4
+        with:
+          name: LocalChat-macOS
+          path: "*.dmg"
