@@ -37,7 +37,7 @@ jobs:
         run: |
           $llamaPath = python -c "import llama_cpp; import os; print(os.path.dirname(llama_cpp.__file__))"
           cd src
-          pyinstaller --onefile --windowed --name "LocalChat" --add-data "../models;models" --add-data "../data;data" --add-data "$llamaPath;llama_cpp" --hidden-import llama_cpp --hidden-import sentence_transformers --collect-all sentence_transformers main.py
+          pyinstaller --onefile --windowed --name "LocalChat" --add-data "../models;models" --add-data "../data;data" --add-data "$llamaPath;llama_cpp" --collect-all llama_cpp --hidden-import llama_cpp --hidden-import sentence_transformers --collect-all sentence_transformers main.py
         shell: pwsh
       
       - uses: actions/upload-artifact@v4
@@ -57,8 +57,7 @@ jobs:
           python-version: '3.11'
       
       - name: Install build tools
-        run: |
-          brew install cmake
+        run: brew install cmake
       
       - name: Install deps
         env:
@@ -80,30 +79,28 @@ jobs:
       - name: Build app
         run: |
           LLAMA_PATH=$(python -c "import llama_cpp; import os; print(os.path.dirname(llama_cpp.__file__))")
-          cd src
-          pyinstaller --onefile --windowed --name "LocalChat" --add-data "../models:models" --add-data "../data:data" --add-data "$LLAMA_PATH:llama_cpp" --hidden-import llama_cpp --hidden-import sentence_transformers --collect-all sentence_transformers main.py
-      
-      - name: Create DMG
-        run: |
-          brew install create-dmg
-          create-dmg \
-            --volname "LocalChat" \
-            --window-pos 200 120 \
-            --window-size 600 400 \
-            --icon-size 100 \
-            --app-drop-link 450 185 \
-            "LocalChat.dmg" \
-            "src/dist/LocalChat.app" || true
+          echo "LLAMA_PATH: $LLAMA_PATH"
+          ls -la "$LLAMA_PATH"
+          ls -la "$LLAMA_PATH/lib" || true
           
-          # Fallback: zip if DMG fails
-          if [ ! -f "LocalChat.dmg" ]; then
-            cd src/dist
-            zip -r ../../LocalChat-macOS.zip LocalChat.app
-          fi
+          cd src
+          pyinstaller --onefile --windowed --name "LocalChat" \
+            --add-data "../models:models" \
+            --add-data "../data:data" \
+            --add-data "$LLAMA_PATH:llama_cpp" \
+            --collect-all llama_cpp \
+            --collect-binaries llama_cpp \
+            --hidden-import llama_cpp \
+            --hidden-import sentence_transformers \
+            --collect-all sentence_transformers \
+            main.py
+      
+      - name: Create ZIP
+        run: |
+          cd src/dist
+          zip -r ../../LocalChat-macOS.zip LocalChat.app
       
       - uses: actions/upload-artifact@v4
         with:
           name: LocalChat-macOS
-          path: |
-            *.dmg
-            *.zip
+          path: LocalChat-macOS.zip
