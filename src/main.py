@@ -20,7 +20,8 @@ class App:
         self.ui = ChatUI(
             self.root,
             on_send=self.send,
-            on_clear=self.clear
+            on_clear=self.clear,
+            on_load_files=self.load_files
         )
         
         self.ui.add_message("System", "Starting...", "system")
@@ -75,6 +76,22 @@ class App:
         self.ui.clear_chat()
         self.ui.add_message("System", "Conversation cleared.", "system")
     
+    def load_files(self, files: tuple):
+        """Loads new documents into RAG."""
+        self.ui.add_message("System", f"Loading {len(files)} file(s)...", "system")
+        
+        def task():
+            success = self.engine.rag.add_documents(
+                files,
+                on_progress=lambda m: self.root.after(0, lambda: self.ui.add_message("Debug", m, "system"))
+            )
+            if success:
+                self.root.after(0, lambda: self.ui.add_message("System", "✅ Files loaded successfully!", "system"))
+            else:
+                self.root.after(0, lambda: self.ui.add_message("Error", "Failed to load files", "error"))
+        
+        threading.Thread(target=task, daemon=True).start()
+    
     def run(self):
         """Runs the app."""
         self.root.mainloop()
@@ -82,8 +99,3 @@ class App:
 
 if __name__ == "__main__":
     App().run()
-
-
-
-
-
