@@ -3,17 +3,18 @@ User Interface.
 """
 
 import tkinter as tk
-from tkinter import scrolledtext
+from tkinter import scrolledtext, filedialog
 import config
 
 
 class ChatUI:
     """Chat user interface."""
     
-    def __init__(self, root: tk.Tk, on_send, on_clear):
+    def __init__(self, root: tk.Tk, on_send, on_clear, on_load_files):
         self.root = root
         self.on_send = on_send
         self.on_clear = on_clear
+        self.on_load_files = on_load_files
         
         self._setup_window()
         self._create_widgets()
@@ -53,6 +54,16 @@ class ChatUI:
         # Buttons
         btn_frame = tk.Frame(self.root, bg=c["bg"])
         btn_frame.pack(fill=tk.X, padx=20)
+        
+        tk.Button(
+            btn_frame,
+            text="📁 Load Files",
+            font=f["button"],
+            bg=c["accent"],
+            fg="white",
+            relief=tk.FLAT,
+            command=self._load_files
+        ).pack(side=tk.LEFT, padx=(0, 10))
         
         tk.Button(
             btn_frame,
@@ -161,3 +172,16 @@ class ChatUI:
     def focus_input(self):
         """Focuses input field."""
         self.input.focus_set()
+    
+    def _load_files(self):
+        """Opens file dialog to load documents."""
+        files = filedialog.askopenfilenames(
+            title="Select documents",
+            filetypes=[
+                ("Text files", "*.txt"),
+                ("Markdown", "*.md"),
+                ("All files", "*.*")
+            ]
+        )
+        if files:
+            self.on_load_files(files)
