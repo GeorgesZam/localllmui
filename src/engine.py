@@ -28,7 +28,7 @@ class EmbeddingModel:
         try:
             from sentence_transformers import SentenceTransformer
             # Small multilingual model (~100MB)
-            self.model = SentenceTransformer('paraphrase-multilingual-MiniLM-L12-v2')
+            self.model = SentenceTransformer('all-MiniLM-L6-v2')
             return True
         except Exception as e:
             print(f"Embedding model error: {e}")
