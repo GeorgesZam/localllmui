@@ -27,7 +27,7 @@ class EmbeddingModel:
         """Loads the embedding model."""
         try:
             from sentence_transformers import SentenceTransformer
-            # Small multilingual model (~100MB)
+            # Small model (~23MB)
             self.model = SentenceTransformer('all-MiniLM-L6-v2')
             return True
         except Exception as e:
@@ -93,6 +93,7 @@ class RAG:
         folder = get_resource_path(config.RAG_FOLDER)
         
         if not os.path.exists(folder):
+            os.makedirs(folder, exist_ok=True)
             return
         
         # Load all documents
@@ -211,6 +212,34 @@ class RAG:
         ])
         
         return f"\n\nRelevant documents:\n{context}\n"
+    
+    def add_documents(self, file_paths: list, on_progress: Optional[Callable[[str], None]] = None) -> bool:
+        """Adds new documents and rebuilds index."""
+        def log(msg):
+            if on_progress:
+                on_progress(msg)
+        
+        try:
+            folder = get_resource_path(config.RAG_FOLDER)
+            os.makedirs(folder, exist_ok=True)
+            
+            # Copy files to data folder
+            import shutil
+            for file_path in file_paths:
+                filename = os.path.basename(file_path)
+                dest = os.path.join(folder, filename)
+                shutil.copy2(file_path, dest)
+                log(f"Added: {filename}")
+            
+            # Rebuild index
+            log("Rebuilding index...")
+            self._build_index(log)
+            log(f"Index updated: {len(self.documents)} chunks")
+            return True
+            
+        except Exception as e:
+            log(f"Error: {e}")
+            return False
 
 
 class LLMEngine:
