@@ -501,11 +501,15 @@ class LLMEngine:
             yield "Error: Model not ready"
             return
         
-        # Get RAG context
+        # Get RAG context - ALWAYS try to search if RAG enabled
         rag_context = ""
-        if config.RAG_ENABLED and self.rag.documents:
-            rag_context = self.rag.search(message)
-            print(f"[Engine] RAG context: {len(rag_context)} chars")
+        if config.RAG_ENABLED:
+            print(f"[Engine] RAG has {len(self.rag.documents)} documents")
+            if self.rag.documents:
+                rag_context = self.rag.search(message)
+                print(f"[Engine] RAG context: {len(rag_context)} chars")
+            else:
+                print("[Engine] RAG enabled but no documents loaded")
         
         # Build conversation history
         history_str = ""
@@ -526,6 +530,10 @@ class LLMEngine:
         prompt += "<|im_start|>assistant\n"
         
         print(f"[Engine] Prompt: {len(prompt)} chars, History: {len(self.history)} msgs")
+        print(f"[Engine] RAG in prompt: {'### RELEVANT DOCUMENTS ###' in prompt}")
+        
+        # DEBUG: Print first 500 chars of prompt to verify RAG context
+        print(f"[Engine] Prompt preview:\n{prompt[:1000]}...")
         
         # Generate
         full_response = ""
