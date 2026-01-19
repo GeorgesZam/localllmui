@@ -23,11 +23,19 @@ jobs:
           pip install llama-cpp-python --prefer-binary
           pip install sentence-transformers
           pip install numpy
+          pip install PyPDF2
+          pip install openpyxl
+          pip install python-pptx
       
-      - name: Download model
+      - name: Download LLM model
         run: |
           mkdir models
           curl -L -o models/model.gguf https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/main/qwen2.5-0.5b-instruct-q4_k_m.gguf
+        shell: bash
+      
+      - name: Pre-download embedding model
+        run: |
+          python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('paraphrase-MiniLM-L3-v2')"
         shell: bash
       
       - name: Create data folder
@@ -36,8 +44,25 @@ jobs:
       - name: Build
         run: |
           $llamaPath = python -c "import llama_cpp; import os; print(os.path.dirname(llama_cpp.__file__))"
+          $stPath = python -c "import sentence_transformers; import os; print(os.path.dirname(sentence_transformers.__file__))"
           cd src
-          pyinstaller --onefile --windowed --name "LocalChat" --add-data "../models;models" --add-data "../data;data" --add-data "$llamaPath;llama_cpp" --collect-all llama_cpp --hidden-import llama_cpp --hidden-import sentence_transformers --collect-all sentence_transformers main.py
+          pyinstaller --onefile --windowed --name "LocalChat" `
+            --add-data "../models;models" `
+            --add-data "../data;data" `
+            --add-data "$llamaPath;llama_cpp" `
+            --add-data "$stPath;sentence_transformers" `
+            --collect-all llama_cpp `
+            --collect-all sentence_transformers `
+            --collect-all transformers `
+            --collect-all tokenizers `
+            --hidden-import llama_cpp `
+            --hidden-import sentence_transformers `
+            --hidden-import PyPDF2 `
+            --hidden-import openpyxl `
+            --hidden-import pptx `
+            --hidden-import torch `
+            --hidden-import transformers `
+            main.py
         shell: pwsh
       
       - uses: actions/upload-artifact@v4
@@ -67,11 +92,18 @@ jobs:
           pip install llama-cpp-python --no-cache-dir
           pip install sentence-transformers
           pip install numpy
+          pip install PyPDF2
+          pip install openpyxl
+          pip install python-pptx
       
-      - name: Download model
+      - name: Download LLM model
         run: |
           mkdir models
           curl -L -o models/model.gguf https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/main/qwen2.5-0.5b-instruct-q4_k_m.gguf
+      
+      - name: Pre-download embedding model
+        run: |
+          python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('paraphrase-MiniLM-L3-v2')"
       
       - name: Create data folder
         run: mkdir data
@@ -79,7 +111,9 @@ jobs:
       - name: Build app
         run: |
           LLAMA_PATH=$(python -c "import llama_cpp; import os; print(os.path.dirname(llama_cpp.__file__))")
+          ST_PATH=$(python -c "import sentence_transformers; import os; print(os.path.dirname(sentence_transformers.__file__))")
           echo "LLAMA_PATH: $LLAMA_PATH"
+          echo "SENTENCE_TRANSFORMERS_PATH: $ST_PATH"
           ls -la "$LLAMA_PATH"
           ls -la "$LLAMA_PATH/lib" || true
           
@@ -88,11 +122,19 @@ jobs:
             --add-data "../models:models" \
             --add-data "../data:data" \
             --add-data "$LLAMA_PATH:llama_cpp" \
+            --add-data "$ST_PATH:sentence_transformers" \
             --collect-all llama_cpp \
             --collect-binaries llama_cpp \
+            --collect-all sentence_transformers \
+            --collect-all transformers \
+            --collect-all tokenizers \
             --hidden-import llama_cpp \
             --hidden-import sentence_transformers \
-            --collect-all sentence_transformers \
+            --hidden-import PyPDF2 \
+            --hidden-import openpyxl \
+            --hidden-import pptx \
+            --hidden-import torch \
+            --hidden-import transformers \
             main.py
       
       - name: Create ZIP
