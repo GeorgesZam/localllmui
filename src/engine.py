@@ -9,6 +9,25 @@ import numpy as np
 from typing import Iterator, Optional, Callable, List
 import config
 
+# Document parsers
+try:
+    import PyPDF2
+    HAS_PDF = True
+except ImportError:
+    HAS_PDF = False
+
+try:
+    import openpyxl
+    HAS_EXCEL = True
+except ImportError:
+    HAS_EXCEL = False
+
+try:
+    from pptx import Presentation
+    HAS_PPTX = True
+except ImportError:
+    HAS_PPTX = False
+
 
 def get_resource_path(relative_path: str) -> str:
     """Gets path compatible with PyInstaller."""
@@ -88,6 +107,88 @@ class RAG:
             self.documents = []
             self.embeddings = None
     
+    def _extract_text_from_pdf(self, file_path: str) -> str:
+        """Extrait le texte d'un PDF."""
+        if not HAS_PDF:
+            return ""
+        
+        try:
+            text = ""
+            with open(file_path, 'rb') as f:
+                reader = PyPDF2.PdfReader(f)
+                for page in reader.pages:
+                    page_text = page.extract_text()
+                    if page_text:
+                        text += page_text + "\n"
+            return text.strip()
+        except Exception as e:
+            print(f"Error reading PDF {file_path}: {e}")
+            return ""
+    
+    def _extract_text_from_excel(self, file_path: str) -> str:
+        """Extrait le texte d'un fichier Excel."""
+        if not HAS_EXCEL:
+            return ""
+        
+        try:
+            text = ""
+            wb = openpyxl.load_workbook(file_path, data_only=True)
+            
+            for sheet_name in wb.sheetnames:
+                sheet = wb[sheet_name]
+                text += f"\n=== Sheet: {sheet_name} ===\n"
+                
+                for row in sheet.iter_rows(values_only=True):
+                    row_text = " | ".join([str(cell) if cell is not None else "" for cell in row])
+                    if row_text.strip():
+                        text += row_text + "\n"
+            
+            wb.close()
+            return text.strip()
+        except Exception as e:
+            print(f"Error reading Excel {file_path}: {e}")
+            return ""
+    
+    def _extract_text_from_pptx(self, file_path: str) -> str:
+        """Extrait le texte d'un PowerPoint."""
+        if not HAS_PPTX:
+            return ""
+        
+        try:
+            text = ""
+            prs = Presentation(file_path)
+            
+            for i, slide in enumerate(prs.slides, 1):
+                text += f"\n=== Slide {i} ===\n"
+                
+                for shape in slide.shapes:
+                    if hasattr(shape, "text") and shape.text:
+                        text += shape.text + "\n"
+            
+            return text.strip()
+        except Exception as e:
+            print(f"Error reading PowerPoint {file_path}: {e}")
+            return ""
+    
+    def _read_document(self, file_path: str) -> str:
+        """Lit un document selon son extension."""
+        ext = os.path.splitext(file_path)[1].lower()
+        
+        if ext == '.pdf':
+            return self._extract_text_from_pdf(file_path)
+        elif ext in ['.xlsx', '.xls']:
+            return self._extract_text_from_excel(file_path)
+        elif ext in ['.pptx', '.ppt']:
+            return self._extract_text_from_pptx(file_path)
+        elif ext in ['.txt', '.md']:
+            try:
+                with open(file_path, 'r', encoding='utf-8') as f:
+                    return f.read()
+            except:
+                return ""
+        else:
+            return ""
+    
     def _build_index(self, log: Callable[[str], None]):
         """Builds index from documents."""
         folder = get_resource_path(config.RAG_FOLDER)
@@ -98,12 +199,16 @@ class RAG:
         
         # Load all documents
         all_chunks = []
+        supported_extensions = ('.txt', '.md', '.pdf', '.xlsx', '.xls', '.pptx', '.ppt')
+        
         for filename in os.listdir(folder):
-            if filename.endswith((".txt", ".md")):
+            if filename.endswith(supported_extensions):
                 path = os.path.join(folder, filename)
                 try:
-                    with open(path, "r", encoding="utf-8") as f:
-                        text = f.read()
+                    log(f"Processing {filename}...")
+                    text = self._read_document(path)
+                    
+                    if text:
                         chunks = self._split_text(text, config.RAG_CHUNK_SIZE)
                         for i, chunk in enumerate(chunks):
                             all_chunks.append({
@@ -111,10 +216,14 @@ class RAG:
                                 "chunk_id": i,
                                 "content": chunk
                             })
-                except:
-                    pass
+                        log(f"✓ {filename}: {len(chunks)} chunks")
+                    else:
+                        log(f"⚠ {filename}: no text extracted")
+                except Exception as e:
+                    log(f"✗ {filename}: {str(e)}")
         
         if not all_chunks:
+            log("No documents to index")
             return
         
         log(f"Encoding {len(all_chunks)} chunks...")
@@ -129,9 +238,9 @@ class RAG:
             with open(self.index_file, "w", encoding="utf-8") as f:
                 json.dump(self.documents, f, ensure_ascii=False)
             np.save(self.embeddings_file, self.embeddings)
-            log("Index saved")
-        except:
-            pass
+            log("✓ Index saved")
+        except Exception as e:
+            log(f"✗ Failed to save index: {e}")
     
     def _load_documents_simple(self):
         """Fallback: loads documents without embeddings."""
@@ -140,12 +249,14 @@ class RAG:
         if not os.path.exists(folder):
             return
         
+        supported_extensions = ('.txt', '.md', '.pdf', '.xlsx', '.xls', '.pptx', '.ppt')
+        
         for filename in os.listdir(folder):
-            if filename.endswith((".txt", ".md")):
+            if filename.endswith(supported_extensions):
                 path = os.path.join(folder, filename)
                 try:
-                    with open(path, "r", encoding="utf-8") as f:
-                        text = f.read()
+                    text = self._read_document(path)
+                    if text:
                         chunks = self._split_text(text, config.RAG_CHUNK_SIZE)
                         for chunk in chunks:
                             self.documents.append({
