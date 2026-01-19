@@ -12,7 +12,7 @@ WINDOW_SIZE = "900x700"
 MODEL_FILE = "models/model.gguf"
 CONTEXT_SIZE = 4096
 MAX_TOKENS = 512
-THREADS = os.cpu_count() or 4
+THREADS = 8
 
 # === PROMPT ===
 SYSTEM_PROMPT = """You are a helpful assistant specialized in analyzing documents and code.
