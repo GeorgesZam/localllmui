@@ -46,8 +46,8 @@ class EmbeddingModel:
         """Loads the embedding model."""
         try:
             from sentence_transformers import SentenceTransformer
-            # Small model (~23MB)
-            self.model = SentenceTransformer('all-MiniLM-L6-v2')
+            # Ultra-small model (~17MB) - le plus petit
+            self.model = SentenceTransformer('paraphrase-MiniLM-L3-v2')
             return True
         except Exception as e:
             print(f"Embedding model error: {e}")
