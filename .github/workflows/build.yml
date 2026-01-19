@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 
 jobs:
-  # === WINDOWS ===
+  # === WINDOWS (AVX2 optimisé) ===
   build-windows:
     runs-on: windows-latest
     
@@ -17,10 +17,14 @@ jobs:
         with:
           python-version: '3.11'
       
-      - name: Install deps
+      - name: Install llama-cpp-python with AVX2
+        run: |
+          pip install llama-cpp-python --prefer-binary
+        shell: bash
+      
+      - name: Install other deps
         run: |
           pip install pyinstaller
-          pip install llama-cpp-python --prefer-binary
           pip install sentence-transformers
           pip install numpy
           pip install PyPDF2
@@ -70,7 +74,7 @@ jobs:
           name: LocalChat-Windows
           path: src/dist/*.exe
 
-  # === MACOS ===
+  # === MACOS (Metal GPU optimisé) ===
   build-macos:
     runs-on: macos-14
     
@@ -84,12 +88,20 @@ jobs:
       - name: Install build tools
         run: brew install cmake
       
-      - name: Install deps
+      - name: Install llama-cpp-python with Metal EMBEDDED
         env:
-          CMAKE_ARGS: "-DLLAMA_METAL=on"
+          CMAKE_ARGS: "-DGGML_METAL=on -DGGML_METAL_EMBED_LIBRARY=ON"
+        run: |
+          pip install llama-cpp-python --no-cache-dir --force-reinstall --verbose
+      
+      - name: Verify Metal support
+        run: |
+          python -c "import llama_cpp; print('llama-cpp-python installed successfully')"
+          python -c "from llama_cpp import Llama; print('Llama import OK')"
+      
+      - name: Install other deps
         run: |
           pip install pyinstaller
-          pip install llama-cpp-python --no-cache-dir
           pip install sentence-transformers
           pip install numpy
           pip install PyPDF2
@@ -114,8 +126,11 @@ jobs:
           ST_PATH=$(python -c "import sentence_transformers; import os; print(os.path.dirname(sentence_transformers.__file__))")
           echo "LLAMA_PATH: $LLAMA_PATH"
           echo "SENTENCE_TRANSFORMERS_PATH: $ST_PATH"
+          
+          # List llama_cpp contents to verify Metal lib is there
           ls -la "$LLAMA_PATH"
-          ls -la "$LLAMA_PATH/lib" || true
+          ls -la "$LLAMA_PATH/lib" 2>/dev/null || echo "No lib folder"
+          find "$LLAMA_PATH" -name "*.metal" -o -name "*metal*" 2>/dev/null || echo "No metal files found"
           
           cd src
           pyinstaller --onefile --windowed --name "LocalChat" \
