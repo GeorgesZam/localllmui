@@ -178,12 +178,13 @@ class ChatUI:
         files = filedialog.askopenfilenames(
             title="Select documents",
             filetypes=[
-                ("All supported", "*.txt *.md *.pdf *.xlsx *.xls *.pptx *.ppt"),
-                ("Text files", "*.txt"),
-                ("Markdown", "*.md"),
+                ("All supported", "*.txt *.md *.pdf *.xlsx *.xls *.pptx *.ppt *.py *.js *.json *.csv *.xml *.yaml *.yml"),
+                ("Text files", "*.txt *.md"),
+                ("Code files", "*.py *.js *.ts *.java *.c *.cpp *.go *.rs"),
                 ("PDF files", "*.pdf"),
                 ("Excel files", "*.xlsx *.xls"),
                 ("PowerPoint files", "*.pptx *.ppt"),
+                ("Data files", "*.json *.csv *.xml *.yaml *.yml"),
                 ("All files", "*.*")
             ]
         )
