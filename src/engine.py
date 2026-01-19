@@ -481,7 +481,8 @@ class LLMEngine:
                 model_path=model_path,
                 n_ctx=config.CONTEXT_SIZE,
                 n_threads=config.THREADS,
-                verbose=False
+                n_gpu_layers=-1,  # -1 = ALL layers on GPU (Metal on Mac, CUDA on Windows if available)
+                verbose=True      # Show Metal/CUDA logs at startup
             )
             
             self.is_ready = True
@@ -513,9 +514,9 @@ class LLMEngine:
         
         # Build conversation history
         history_str = ""
-        for h in self.history[-10:]:  # Last 10 exchanges
-            history_str += f"<|im_start|>user\n{h['user']}<|im_end|>\n"
-            history_str += f"<|im_start|>assistant\n{h['assistant']}<|im_end|>\n"
+        for h in self.history[-4:]:  # Réduit à 4 derniers échanges pour vitesse
+            history_str += f"<start_of_turn>user\n{h['user']}<end_of_turn>\n"
+            history_str += f"<start_of_turn>model\n{h['assistant']}<end_of_turn>\n"
         
         # Build system prompt
         system = config.SYSTEM_PROMPT
@@ -523,11 +524,16 @@ class LLMEngine:
             system += rag_context
             system += "\n\nUse the documents above to answer. Be specific and quote relevant parts."
         
-        # Build full prompt
-        prompt = f"<|im_start|>system\n{system}<|im_end|>\n"
-        prompt += history_str
-        prompt += f"<|im_start|>user\n{message}<|im_end|>\n"
-        prompt += "<|im_start|>assistant\n"
+        # Build full prompt (Gemma format)
+        prompt = f"<start_of_turn>user\n{system}\n\n{message}<end_of_turn>\n"
+        prompt += "<start_of_turn>model\n"
+        
+        # If we have history, use multi-turn format
+        if history_str:
+            prompt = f"<start_of_turn>user\n{system}<end_of_turn>\n"
+            prompt += history_str
+            prompt += f"<start_of_turn>user\n{message}<end_of_turn>\n"
+            prompt += "<start_of_turn>model\n"
         
         print(f"[Engine] Prompt: {len(prompt)} chars, History: {len(self.history)} msgs")
         print(f"[Engine] RAG in prompt: {'### RELEVANT DOCUMENTS ###' in prompt}")
