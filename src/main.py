@@ -3,6 +3,17 @@
 Local Chat - Entry point.
 """
 
+import sys
+import os
+
+# FIX: Prevent macOS from relaunching app on file dialog
+if sys.platform == 'darwin':
+    os.environ['TK_SILENCE_DEPRECATION'] = '1'
+    # Prevent multiprocessing issues with PyInstaller
+    if hasattr(sys, '_MEIPASS'):
+        import multiprocessing
+        multiprocessing.freeze_support()
+
 import tkinter as tk
 import threading
 from engine import LLMEngine
