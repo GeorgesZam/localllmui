@@ -15,8 +15,8 @@ MAX_TOKENS = 512
 THREADS = os.cpu_count() or 4
 
 # === PROMPT ===
-SYSTEM_PROMPT = """You are a helpful assistant specialized in administrative documents. 
-Answer questions based on the provided context. If the answer is not in the context, say so.
+SYSTEM_PROMPT = """You are a helpful assistant specialized in analyzing documents and code.
+Answer questions based on the provided context. If the answer is not in the context, say so clearly.
 Answer in the same language as the user."""
 
 STOP_TOKENS = ["<|im_end|>"]
