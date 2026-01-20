@@ -37,9 +37,19 @@ jobs:
           curl -L -o models/model.gguf https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/main/qwen2.5-0.5b-instruct-q4_k_m.gguf
         shell: bash
       
-      - name: Pre-download embedding model
+      - name: Pre-download embedding model to local cache
         run: |
-          python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('BAAI/bge-small-en-v1.5')"
+          python -c "
+from sentence_transformers import SentenceTransformer
+import os
+
+# Download model
+model = SentenceTransformer('BAAI/bge-small-en-v1.5')
+
+# Save to local folder for bundling
+model.save('embedding_model')
+print('Embedding model saved to ./embedding_model')
+"
         shell: bash
       
       - name: Create data folder
@@ -53,6 +63,7 @@ jobs:
           pyinstaller --onefile --windowed --name "LocalChat" `
             --add-data "../models;models" `
             --add-data "../data;data" `
+            --add-data "../embedding_model;embedding_model" `
             --add-data "$llamaPath;llama_cpp" `
             --add-data "$stPath;sentence_transformers" `
             --collect-all llama_cpp `
@@ -74,4 +85,96 @@ jobs:
           name: LocalChat-Windows
           path: src/dist/*.exe
 
-  
+  # === MACOS (Metal GPU optimisé) ===
+  build-macos:
+    runs-on: macos-14
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      
+      - name: Install build tools
+        run: brew install cmake
+      
+      - name: Install llama-cpp-python with Metal EMBEDDED
+        env:
+          CMAKE_ARGS: "-DGGML_METAL=on -DGGML_METAL_EMBED_LIBRARY=ON"
+        run: |
+          pip install llama-cpp-python --no-cache-dir --force-reinstall --verbose
+      
+      - name: Verify Metal support
+        run: |
+          python -c "import llama_cpp; print('llama-cpp-python installed successfully')"
+          python -c "from llama_cpp import Llama; print('Llama import OK')"
+      
+      - name: Install other deps
+        run: |
+          pip install pyinstaller
+          pip install sentence-transformers
+          pip install numpy
+          pip install PyPDF2
+          pip install openpyxl
+          pip install python-pptx
+      
+      - name: Download LLM model
+        run: |
+          mkdir models
+          curl -L -o models/model.gguf https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/main/qwen2.5-0.5b-instruct-q4_k_m.gguf
+      
+      - name: Pre-download embedding model to local cache
+        run: |
+          python -c "
+from sentence_transformers import SentenceTransformer
+import os
+
+# Download model
+model = SentenceTransformer('BAAI/bge-small-en-v1.5')
+
+# Save to local folder for bundling
+model.save('embedding_model')
+print('Embedding model saved to ./embedding_model')
+"
+      
+      - name: Create data folder
+        run: mkdir data
+      
+      - name: Build app
+        run: |
+          LLAMA_PATH=$(python -c "import llama_cpp; import os; print(os.path.dirname(llama_cpp.__file__))")
+          ST_PATH=$(python -c "import sentence_transformers; import os; print(os.path.dirname(sentence_transformers.__file__))")
+          echo "LLAMA_PATH: $LLAMA_PATH"
+          echo "SENTENCE_TRANSFORMERS_PATH: $ST_PATH"
+          
+          cd src
+          pyinstaller --onefile --windowed --name "LocalChat" \
+            --add-data "../models:models" \
+            --add-data "../data:data" \
+            --add-data "../embedding_model:embedding_model" \
+            --add-data "$LLAMA_PATH:llama_cpp" \
+            --add-data "$ST_PATH:sentence_transformers" \
+            --collect-all llama_cpp \
+            --collect-binaries llama_cpp \
+            --collect-all sentence_transformers \
+            --collect-all transformers \
+            --collect-all tokenizers \
+            --hidden-import llama_cpp \
+            --hidden-import sentence_transformers \
+            --hidden-import PyPDF2 \
+            --hidden-import openpyxl \
+            --hidden-import pptx \
+            --hidden-import torch \
+            --hidden-import transformers \
+            main.py
+      
+      - name: Create ZIP
+        run: |
+          cd src/dist
+          zip -r ../../LocalChat-macOS.zip LocalChat.app
+      
+      - uses: actions/upload-artifact@v4
+        with:
+          name: LocalChat-macOS
+          path: LocalChat-macOS.zip
