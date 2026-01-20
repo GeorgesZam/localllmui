@@ -1,6 +1,6 @@
 """
 LLM Engine with RAG (embeddings) and conversation history.
-FIXED: Added .py support, writable paths for PyInstaller, better RAG injection
+IMPROVED: Better chunking, better embeddings, better retrieval
 """
 
 import os
@@ -40,10 +40,8 @@ def get_resource_path(relative_path: str) -> str:
 def get_writable_path(filename: str) -> str:
     """Gets writable path for user data - works with PyInstaller."""
     if hasattr(sys, '_MEIPASS'):
-        # When packaged, use user's home directory
         app_data = os.path.join(os.path.expanduser("~"), ".localchat")
     else:
-        # Development mode - use current directory
         app_data = os.path.join(os.path.dirname(__file__), "..", ".localchat")
     
     os.makedirs(app_data, exist_ok=True)
@@ -51,32 +49,49 @@ def get_writable_path(filename: str) -> str:
 
 
 class EmbeddingModel:
-    """Simple embedding model using sentence-transformers."""
+    """Embedding model using sentence-transformers with better model."""
     
     def __init__(self):
         self.model = None
     
-    def load(self):
+    def load(self, on_progress: Optional[Callable[[str], None]] = None):
         """Loads the embedding model."""
+        def log(msg):
+            print(f"[Embedding] {msg}")
+            if on_progress:
+                on_progress(msg)
+        
         try:
             from sentence_transformers import SentenceTransformer
-            self.model = SentenceTransformer('paraphrase-MiniLM-L3-v2')
+            
+            model_name = getattr(config, 'EMBEDDING_MODEL', 'BAAI/bge-small-en-v1.5')
+            log(f"Loading embedding model: {model_name}")
+            
+            self.model = SentenceTransformer(model_name)
+            log("Embedding model loaded!")
             return True
         except Exception as e:
-            print(f"[Embedding] Error: {e}")
+            log(f"Error loading embedding model: {e}")
             return False
     
-    def encode(self, texts: List[str]) -> np.ndarray:
-        """Encodes texts to vectors."""
+    def encode(self, texts: List[str], is_query: bool = False) -> np.ndarray:
+        """Encodes texts to vectors.
+        
+        For BGE models, queries need a prefix for better retrieval.
+        """
         if self.model is None:
             return np.array([])
-        return self.model.encode(texts, normalize_embeddings=True)
+        
+        # BGE models work better with query prefix
+        if is_query and 'bge' in getattr(config, 'EMBEDDING_MODEL', '').lower():
+            texts = [f"Represent this sentence for searching relevant passages: {t}" for t in texts]
+        
+        return self.model.encode(texts, normalize_embeddings=True, show_progress_bar=False)
 
 
 class RAG:
-    """RAG with semantic search using embeddings."""
+    """RAG with improved semantic search."""
     
-    # FIXED: Support many more file types including code files
     SUPPORTED_EXTENSIONS = (
         # Documents
         '.txt', '.md', '.pdf', '.xlsx', '.xls', '.pptx', '.ppt', '.csv',
@@ -96,12 +111,9 @@ class RAG:
         self.embeddings = None
         self.embedding_model = EmbeddingModel()
         
-        # FIXED: All user data goes to writable location
         self.index_file = get_writable_path("index.json")
         self.embeddings_file = get_writable_path("embeddings.npy")
         self.user_docs_folder = get_writable_path("documents")
-        
-        # Bundled data folder (read-only when packaged)
         self.bundled_data_folder = get_resource_path(config.RAG_FOLDER)
     
     def initialize(self, on_progress: Optional[Callable[[str], None]] = None) -> bool:
@@ -114,17 +126,15 @@ class RAG:
         if not config.RAG_ENABLED:
             return True
         
-        # Create user docs folder
         os.makedirs(self.user_docs_folder, exist_ok=True)
         log(f"User docs folder: {self.user_docs_folder}")
         
         log("Loading embedding model...")
-        if not self.embedding_model.load():
+        if not self.embedding_model.load(on_progress):
             log("Embedding model failed, using keyword search")
             self._load_documents_simple()
             return True
         
-        # Check if index exists and is valid
         if os.path.exists(self.index_file) and os.path.exists(self.embeddings_file):
             log("Loading existing index...")
             self._load_index()
@@ -229,7 +239,6 @@ class RAG:
         elif ext in ('.pptx', '.ppt'):
             return self._extract_text_from_pptx(file_path)
         else:
-            # Read as text file (works for .py, .js, .json, .txt, etc.)
             encodings = ['utf-8', 'latin-1', 'cp1252']
             for encoding in encodings:
                 try:
@@ -244,28 +253,57 @@ class RAG:
                     return ""
             return ""
     
-    def _split_text(self, text: str, chunk_size: int) -> List[str]:
-        """Splits text into overlapping chunks."""
-        words = text.split()
+    def _split_text(self, text: str, chunk_size: int, overlap: int = None) -> List[str]:
+        """Splits text into overlapping chunks with better sentence handling."""
+        if overlap is None:
+            overlap = getattr(config, 'RAG_CHUNK_OVERLAP', 100)
+        
+        # Clean text
+        text = text.strip()
+        if len(text) < 50:
+            return [text] if len(text) > 20 else []
+        
+        # Split by sentences first for better chunks
+        import re
+        sentences = re.split(r'(?<=[.!?])\s+', text)
+        
         chunks = []
+        current_chunk = []
+        current_length = 0
         
-        if len(words) < 20:
-            # Very short text - keep as single chunk if meaningful
-            if len(words) > 5:
-                return [text]
-            return []
+        for sentence in sentences:
+            sentence_words = sentence.split()
+            sentence_length = len(sentence_words)
+            
+            if current_length + sentence_length <= chunk_size:
+                current_chunk.extend(sentence_words)
+                current_length += sentence_length
+            else:
+                # Save current chunk
+                if current_chunk:
+                    chunks.append(" ".join(current_chunk))
+                
+                # Start new chunk with overlap
+                if overlap > 0 and current_chunk:
+                    overlap_words = current_chunk[-overlap:] if len(current_chunk) > overlap else current_chunk
+                    current_chunk = overlap_words + sentence_words
+                    current_length = len(current_chunk)
+                else:
+                    current_chunk = sentence_words
+                    current_length = sentence_length
         
-        # Overlap of 20%
-        step = max(1, int(chunk_size * 0.8))
+        # Don't forget last chunk
+        if current_chunk and len(current_chunk) >= 20:
+            chunks.append(" ".join(current_chunk))
         
-        for i in range(0, len(words), step):
-            chunk_words = words[i:i + chunk_size]
-            if len(chunk_words) >= 20:
-                chunks.append(" ".join(chunk_words))
-        
-        # Make sure we don't miss the end
-        if not chunks:
-            chunks.append(text)
+        # Fallback: if no chunks created, use simple word splitting
+        if not chunks and len(text.split()) >= 20:
+            words = text.split()
+            step = max(1, chunk_size - overlap)
+            for i in range(0, len(words), step):
+                chunk_words = words[i:i + chunk_size]
+                if len(chunk_words) >= 20:
+                    chunks.append(" ".join(chunk_words))
         
         return chunks
     
@@ -273,7 +311,6 @@ class RAG:
         """Builds index from all document folders."""
         all_chunks = []
         
-        # Scan both bundled and user folders
         folders = []
         if os.path.exists(self.bundled_data_folder):
             folders.append(("bundled", self.bundled_data_folder))
@@ -324,15 +361,14 @@ class RAG:
         
         log(f"Encoding {len(all_chunks)} chunks...")
         
-        # Create embeddings
         texts = [c["content"] for c in all_chunks]
-        self.embeddings = self.embedding_model.encode(texts)
+        self.embeddings = self.embedding_model.encode(texts, is_query=False)
         self.documents = all_chunks
         
         self._save_index(log)
     
     def _load_documents_simple(self):
-        """Fallback: loads documents without embeddings (keyword search)."""
+        """Fallback: loads documents without embeddings."""
         folders = [self.bundled_data_folder, self.user_docs_folder]
         
         for folder in folders:
@@ -363,21 +399,30 @@ class RAG:
             return ""
         
         top_k = top_k or config.RAG_TOP_K
-        print(f"[RAG] Searching '{query}' in {len(self.documents)} chunks")
+        min_score = getattr(config, 'RAG_MIN_SCORE', 0.25)
+        
+        print(f"[RAG] Searching '{query}' in {len(self.documents)} chunks (top_k={top_k}, min_score={min_score})")
         
         results = []
         
         if self.embeddings is not None and self.embedding_model.model is not None:
-            # Semantic search
-            query_embedding = self.embedding_model.encode([query])[0]
+            # Semantic search with query encoding
+            query_embedding = self.embedding_model.encode([query], is_query=True)[0]
             similarities = np.dot(self.embeddings, query_embedding)
-            top_indices = np.argsort(similarities)[-top_k:][::-1]
+            
+            # Get top results
+            top_indices = np.argsort(similarities)[-top_k * 2:][::-1]  # Get more, filter later
             
             for idx in top_indices:
-                score = similarities[idx]
-                if score > 0.15:  # Lower threshold
+                score = float(similarities[idx])
+                if score >= min_score:
                     results.append((self.documents[idx], score))
-                    print(f"[RAG] Found: {self.documents[idx]['source']} (score: {score:.3f})")
+                    print(f"[RAG] ✓ {self.documents[idx]['source']} chunk {self.documents[idx]['chunk_id']} (score: {score:.3f})")
+                else:
+                    print(f"[RAG] ✗ {self.documents[idx]['source']} chunk {self.documents[idx]['chunk_id']} (score: {score:.3f} < {min_score})")
+            
+            # Keep only top_k
+            results = results[:top_k]
         else:
             # Keyword fallback
             query_words = set(query.lower().split())
@@ -391,16 +436,18 @@ class RAG:
             results = scored[:top_k]
         
         if not results:
-            print("[RAG] No matches found")
+            print("[RAG] No matches found above threshold")
             return ""
         
-        # Format context for LLM
+        # Format context for LLM - cleaner format
         context_parts = []
-        for doc, score in results:
-            context_parts.append(f"[Source: {doc['source']}]\n{doc['content']}")
+        for i, (doc, score) in enumerate(results, 1):
+            context_parts.append(f"[Document {i} - {doc['source']}]\n{doc['content']}")
         
-        context = "\n\n---\n\n".join(context_parts)
-        return f"\n\n### RELEVANT DOCUMENTS ###\n{context}\n### END DOCUMENTS ###\n"
+        context = "\n\n".join(context_parts)
+        print(f"[RAG] Returning {len(results)} chunks, {len(context)} chars")
+        
+        return context
     
     def add_documents(self, file_paths: list, on_progress: Optional[Callable[[str], None]] = None) -> bool:
         """Adds new documents and rebuilds index."""
@@ -421,7 +468,6 @@ class RAG:
                 
                 if ext not in self.SUPPORTED_EXTENSIONS:
                     log(f"⚠ {filename}: unsupported ({ext})")
-                    log(f"   Supported: {', '.join(self.SUPPORTED_EXTENSIONS[:10])}...")
                     continue
                 
                 dest = os.path.join(self.user_docs_folder, filename)
@@ -433,7 +479,6 @@ class RAG:
                 log("No supported files to add")
                 return False
             
-            # Rebuild entire index
             log("Rebuilding index...")
             self._build_index(log)
             
@@ -464,7 +509,6 @@ class LLMEngine:
                 on_progress(msg)
         
         try:
-            # Initialize RAG
             self.rag.initialize(log)
             
             log("Importing llama_cpp...")
@@ -481,8 +525,8 @@ class LLMEngine:
                 model_path=model_path,
                 n_ctx=config.CONTEXT_SIZE,
                 n_threads=config.THREADS,
-                n_gpu_layers=-1,  # -1 = ALL layers on GPU (Metal on Mac, CUDA on Windows if available)
-                verbose=True      # Show Metal/CUDA logs at startup
+                n_gpu_layers=-1,
+                verbose=True
             )
             
             self.is_ready = True
@@ -502,44 +546,39 @@ class LLMEngine:
             yield "Error: Model not ready"
             return
         
-        # Get RAG context - ALWAYS try to search if RAG enabled
+        # Get RAG context
         rag_context = ""
-        if config.RAG_ENABLED:
+        if config.RAG_ENABLED and self.rag.documents:
             print(f"[Engine] RAG has {len(self.rag.documents)} documents")
-            if self.rag.documents:
-                rag_context = self.rag.search(message)
-                print(f"[Engine] RAG context: {len(rag_context)} chars")
-            else:
-                print("[Engine] RAG enabled but no documents loaded")
+            rag_context = self.rag.search(message)
+            print(f"[Engine] RAG context: {len(rag_context)} chars")
         
-        # Build conversation history
-        history_str = ""
-        for h in self.history[-4:]:  # Réduit à 4 derniers échanges pour vitesse
-            history_str += f"<start_of_turn>user\n{h['user']}<end_of_turn>\n"
-            history_str += f"<start_of_turn>model\n{h['assistant']}<end_of_turn>\n"
-        
-        # Build system prompt
-        system = config.SYSTEM_PROMPT
+        # Build prompt with clear RAG instruction
         if rag_context:
-            system += rag_context
-            system += "\n\nUse the documents above to answer. Be specific and quote relevant parts."
+            system_with_context = f"""{config.SYSTEM_PROMPT}
+
+=== CONTEXT DOCUMENTS ===
+{rag_context}
+=== END CONTEXT ===
+
+Based on the context above, answer the following question. If the answer is not in the context, say so."""
+        else:
+            system_with_context = config.SYSTEM_PROMPT
         
-        # Build full prompt (Gemma format)
-        prompt = f"<start_of_turn>user\n{system}\n\n{message}<end_of_turn>\n"
-        prompt += "<start_of_turn>model\n"
+        # Build conversation (Qwen format)
+        prompt = f"<|im_start|>system\n{system_with_context}<|im_end|>\n"
         
-        # If we have history, use multi-turn format
-        if history_str:
-            prompt = f"<start_of_turn>user\n{system}<end_of_turn>\n"
-            prompt += history_str
-            prompt += f"<start_of_turn>user\n{message}<end_of_turn>\n"
-            prompt += "<start_of_turn>model\n"
+        # Add history (last 3 exchanges max)
+        for h in self.history[-3:]:
+            prompt += f"<|im_start|>user\n{h['user']}<|im_end|>\n"
+            prompt += f"<|im_start|>assistant\n{h['assistant']}<|im_end|>\n"
         
-        print(f"[Engine] Prompt: {len(prompt)} chars, History: {len(self.history)} msgs")
-        print(f"[Engine] RAG in prompt: {'### RELEVANT DOCUMENTS ###' in prompt}")
+        # Add current message
+        prompt += f"<|im_start|>user\n{message}<|im_end|>\n"
+        prompt += "<|im_start|>assistant\n"
         
-        # DEBUG: Print first 500 chars of prompt to verify RAG context
-        print(f"[Engine] Prompt preview:\n{prompt[:1000]}...")
+        print(f"[Engine] Prompt length: {len(prompt)} chars")
+        print(f"[Engine] Has RAG context: {bool(rag_context)}")
         
         # Generate
         full_response = ""
@@ -563,7 +602,6 @@ class LLMEngine:
                 "user": message,
                 "assistant": full_response.strip()
             })
-            print(f"[Engine] Saved to history, now {len(self.history)} messages")
     
     def clear_history(self):
         """Clears conversation history."""
