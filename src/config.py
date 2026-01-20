@@ -25,13 +25,19 @@ STOP_TOKENS = ["<|im_end|>", "<end_of_turn>"]
 # === RAG ===
 RAG_ENABLED = True
 RAG_FOLDER = "data"
-RAG_CHUNK_SIZE = 512          # CHANGED: était 300, maintenant 512
-RAG_CHUNK_OVERLAP = 100       # NEW: overlap entre chunks
-RAG_TOP_K = 3                 # CHANGED: était 5, maintenant 3 (moins de bruit)
-RAG_MIN_SCORE = 0.25          # NEW: seuil minimum de similarité
+RAG_CHUNK_SIZE = 512
+RAG_CHUNK_OVERLAP = 100
+RAG_TOP_K = 3
+RAG_MIN_SCORE = 0.25
+RAG_SHOW_SOURCES = True  # NEW: Afficher les sources utilisées
 
 # === EMBEDDING MODEL ===
-EMBEDDING_MODEL = "BAAI/bge-small-en-v1.5"  # NEW: meilleur modèle pour retrieval
+EMBEDDING_MODEL = "BAAI/bge-small-en-v1.5"
+
+# === SAMPLING (steering) ===
+TEMPERATURE = 0.2      # NEW: Plus bas = plus factuel
+TOP_P = 0.9            # NEW: Nucleus sampling
+REPEAT_PENALTY = 1.1   # NEW: Évite les répétitions
 
 # === UI COLORS ===
 COLORS = {
@@ -43,6 +49,7 @@ COLORS = {
     "system": "#888888",
     "error": "#ff5555",
     "accent": "#4a9eff",
+    "source": "#f1c40f",  # NEW: Couleur pour les sources
 }
 
 # === UI FONTS ===
@@ -50,4 +57,5 @@ FONTS = {
     "title": ("Arial", 20, "bold"),
     "chat": ("Consolas", 11),
     "button": ("Arial", 11, "bold"),
+    "source": ("Consolas", 9),  # NEW: Police pour les sources
 }
