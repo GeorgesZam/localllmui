@@ -10,6 +10,7 @@ WINDOW_SIZE = "900x700"
 
 # === MODEL ===
 MODEL_FILE = "models/model.gguf"
+EMBEDDING_MODEL_FOLDER = "embedding_model"  # Bundled embedding model
 CONTEXT_SIZE = 4096
 MAX_TOKENS = 512
 THREADS = 8
@@ -29,15 +30,12 @@ RAG_CHUNK_SIZE = 512
 RAG_CHUNK_OVERLAP = 100
 RAG_TOP_K = 3
 RAG_MIN_SCORE = 0.25
-RAG_SHOW_SOURCES = True  # NEW: Afficher les sources utilisées
-
-# === EMBEDDING MODEL ===
-EMBEDDING_MODEL = "BAAI/bge-small-en-v1.5"
+RAG_SHOW_SOURCES = True
 
 # === SAMPLING (steering) ===
-TEMPERATURE = 0.2      # NEW: Plus bas = plus factuel
-TOP_P = 0.9            # NEW: Nucleus sampling
-REPEAT_PENALTY = 1.1   # NEW: Évite les répétitions
+TEMPERATURE = 0.2
+TOP_P = 0.9
+REPEAT_PENALTY = 1.1
 
 # === UI COLORS ===
 COLORS = {
@@ -49,7 +47,7 @@ COLORS = {
     "system": "#888888",
     "error": "#ff5555",
     "accent": "#4a9eff",
-    "source": "#f1c40f",  # NEW: Couleur pour les sources
+    "source": "#f1c40f",
 }
 
 # === UI FONTS ===
@@ -57,5 +55,5 @@ FONTS = {
     "title": ("Arial", 20, "bold"),
     "chat": ("Consolas", 11),
     "button": ("Arial", 11, "bold"),
-    "source": ("Consolas", 9),  # NEW: Police pour les sources
+    "source": ("Consolas", 9),
 }
