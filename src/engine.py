@@ -1,13 +1,13 @@
 """
 LLM Engine with RAG (embeddings) and conversation history.
-IMPROVED: Better chunking, better embeddings, better retrieval
+IMPROVED: Better chunking, better embeddings, better retrieval, SOURCE DISPLAY
 """
 
 import os
 import sys
 import json
 import numpy as np
-from typing import Iterator, Optional, Callable, List
+from typing import Iterator, Optional, Callable, List, Tuple
 import config
 
 # Document parsers
@@ -75,14 +75,10 @@ class EmbeddingModel:
             return False
     
     def encode(self, texts: List[str], is_query: bool = False) -> np.ndarray:
-        """Encodes texts to vectors.
-        
-        For BGE models, queries need a prefix for better retrieval.
-        """
+        """Encodes texts to vectors."""
         if self.model is None:
             return np.array([])
         
-        # BGE models work better with query prefix
         if is_query and 'bge' in getattr(config, 'EMBEDDING_MODEL', '').lower():
             texts = [f"Represent this sentence for searching relevant passages: {t}" for t in texts]
         
@@ -90,19 +86,14 @@ class EmbeddingModel:
 
 
 class RAG:
-    """RAG with improved semantic search."""
+    """RAG with improved semantic search and source tracking."""
     
     SUPPORTED_EXTENSIONS = (
-        # Documents
         '.txt', '.md', '.pdf', '.xlsx', '.xls', '.pptx', '.ppt', '.csv',
-        # Code files
         '.py', '.js', '.ts', '.jsx', '.tsx', '.java', '.c', '.cpp', '.h', '.hpp',
         '.cs', '.go', '.rs', '.rb', '.php', '.swift', '.kt', '.scala', '.r',
-        # Config/Data files  
         '.json', '.xml', '.yaml', '.yml', '.ini', '.cfg', '.conf', '.toml',
-        # Scripts
         '.sh', '.bash', '.zsh', '.ps1', '.bat', '.sql',
-        # Web
         '.html', '.htm', '.css', '.scss', '.sass', '.less',
     )
     
@@ -110,6 +101,7 @@ class RAG:
         self.documents = []
         self.embeddings = None
         self.embedding_model = EmbeddingModel()
+        self.last_sources = []  # NEW: Store last used sources
         
         self.index_file = get_writable_path("index.json")
         self.embeddings_file = get_writable_path("embeddings.npy")
@@ -258,12 +250,10 @@ class RAG:
         if overlap is None:
             overlap = getattr(config, 'RAG_CHUNK_OVERLAP', 100)
         
-        # Clean text
         text = text.strip()
         if len(text) < 50:
             return [text] if len(text) > 20 else []
         
-        # Split by sentences first for better chunks
         import re
         sentences = re.split(r'(?<=[.!?])\s+', text)
         
@@ -279,11 +269,9 @@ class RAG:
                 current_chunk.extend(sentence_words)
                 current_length += sentence_length
             else:
-                # Save current chunk
                 if current_chunk:
                     chunks.append(" ".join(current_chunk))
                 
-                # Start new chunk with overlap
                 if overlap > 0 and current_chunk:
                     overlap_words = current_chunk[-overlap:] if len(current_chunk) > overlap else current_chunk
                     current_chunk = overlap_words + sentence_words
@@ -292,11 +280,9 @@ class RAG:
                     current_chunk = sentence_words
                     current_length = sentence_length
         
-        # Don't forget last chunk
         if current_chunk and len(current_chunk) >= 20:
             chunks.append(" ".join(current_chunk))
         
-        # Fallback: if no chunks created, use simple word splitting
         if not chunks and len(text.split()) >= 20:
             words = text.split()
             step = max(1, chunk_size - overlap)
@@ -392,11 +378,16 @@ class RAG:
                     except:
                         pass
     
-    def search(self, query: str, top_k: int = None) -> str:
-        """Searches documents using semantic similarity."""
+    def search(self, query: str, top_k: int = None) -> Tuple[str, List[dict]]:
+        """Searches documents using semantic similarity.
+        
+        Returns:
+            Tuple of (context_string, list_of_sources)
+        """
         if not self.documents:
             print("[RAG] No documents indexed!")
-            return ""
+            self.last_sources = []
+            return "", []
         
         top_k = top_k or config.RAG_TOP_K
         min_score = getattr(config, 'RAG_MIN_SCORE', 0.25)
@@ -406,12 +397,10 @@ class RAG:
         results = []
         
         if self.embeddings is not None and self.embedding_model.model is not None:
-            # Semantic search with query encoding
             query_embedding = self.embedding_model.encode([query], is_query=True)[0]
             similarities = np.dot(self.embeddings, query_embedding)
             
-            # Get top results
-            top_indices = np.argsort(similarities)[-top_k * 2:][::-1]  # Get more, filter later
+            top_indices = np.argsort(similarities)[-top_k * 2:][::-1]
             
             for idx in top_indices:
                 score = float(similarities[idx])
@@ -421,10 +410,8 @@ class RAG:
                 else:
                     print(f"[RAG] ✗ {self.documents[idx]['source']} chunk {self.documents[idx]['chunk_id']} (score: {score:.3f} < {min_score})")
             
-            # Keep only top_k
             results = results[:top_k]
         else:
-            # Keyword fallback
             query_words = set(query.lower().split())
             scored = []
             for doc in self.documents:
@@ -437,173 +424,40 @@ class RAG:
         
         if not results:
             print("[RAG] No matches found above threshold")
-            return ""
+            self.last_sources = []
+            return "", []
         
-        # Format context for LLM - cleaner format
+        # Store sources for display
+        self.last_sources = []
         context_parts = []
+        
         for i, (doc, score) in enumerate(results, 1):
+            # Store source info
+            self.last_sources.append({
+                "index": i,
+                "source": doc["source"],
+                "chunk_id": doc["chunk_id"],
+                "score": score,
+                "preview": doc["content"][:200] + "..." if len(doc["content"]) > 200 else doc["content"]
+            })
             context_parts.append(f"[Document {i} - {doc['source']}]\n{doc['content']}")
         
         context = "\n\n".join(context_parts)
         print(f"[RAG] Returning {len(results)} chunks, {len(context)} chars")
         
-        return context
+        return context, self.last_sources
     
-    def add_documents(self, file_paths: list, on_progress: Optional[Callable[[str], None]] = None) -> bool:
-        """Adds new documents and rebuilds index."""
-        def log(msg):
-            print(f"[RAG] {msg}")
-            if on_progress:
-                on_progress(msg)
-        
-        try:
-            os.makedirs(self.user_docs_folder, exist_ok=True)
-            
-            import shutil
-            added_count = 0
-            
-            for file_path in file_paths:
-                filename = os.path.basename(file_path)
-                ext = os.path.splitext(filename)[1].lower()
-                
-                if ext not in self.SUPPORTED_EXTENSIONS:
-                    log(f"⚠ {filename}: unsupported ({ext})")
-                    continue
-                
-                dest = os.path.join(self.user_docs_folder, filename)
-                shutil.copy2(file_path, dest)
-                log(f"✓ Copied: {filename}")
-                added_count += 1
-            
-            if added_count == 0:
-                log("No supported files to add")
-                return False
-            
-            log("Rebuilding index...")
-            self._build_index(log)
-            
-            return len(self.documents) > 0
-            
-        except Exception as e:
-            log(f"Error: {e}")
-            import traceback
-            traceback.print_exc()
-            return False
-
-
-class LLMEngine:
-    """LLM Engine with history and RAG."""
+    def get_last_sources(self) -> List[dict]:
+        """Returns the sources used in the last search."""
+        return self.last_sources
     
-    def __init__(self):
-        self.llm = None
-        self.history = []
-        self.rag = RAG()
-        self.is_ready = False
-        self.error = None
-    
-    def load(self, on_progress: Optional[Callable[[str], None]] = None) -> bool:
-        """Loads the LLM model and RAG."""
-        def log(msg):
-            print(f"[Engine] {msg}")
-            if on_progress:
-                on_progress(msg)
+    def format_sources_for_display(self) -> str:
+        """Formats sources for UI display."""
+        if not self.last_sources:
+            return ""
         
-        try:
-            self.rag.initialize(log)
-            
-            log("Importing llama_cpp...")
-            from llama_cpp import Llama
-            
-            model_path = get_resource_path(config.MODEL_FILE)
-            log(f"Model: {model_path}")
-            
-            if not os.path.exists(model_path):
-                raise FileNotFoundError(f"Model not found: {model_path}")
-            
-            log("Loading LLM...")
-            self.llm = Llama(
-                model_path=model_path,
-                n_ctx=config.CONTEXT_SIZE,
-                n_threads=config.THREADS,
-                n_gpu_layers=-1,
-                verbose=True
-            )
-            
-            self.is_ready = True
-            log("Ready!")
-            return True
-            
-        except Exception as e:
-            self.error = str(e)
-            log(f"Error: {e}")
-            import traceback
-            traceback.print_exc()
-            return False
-    
-    def generate(self, message: str) -> Iterator[str]:
-        """Generates response with RAG and history."""
-        if not self.is_ready:
-            yield "Error: Model not ready"
-            return
-        
-        # Get RAG context
-        rag_context = ""
-        if config.RAG_ENABLED and self.rag.documents:
-            print(f"[Engine] RAG has {len(self.rag.documents)} documents")
-            rag_context = self.rag.search(message)
-            print(f"[Engine] RAG context: {len(rag_context)} chars")
-        
-        # Build prompt with clear RAG instruction
-        if rag_context:
-            system_with_context = f"""{config.SYSTEM_PROMPT}
-
-=== CONTEXT DOCUMENTS ===
-{rag_context}
-=== END CONTEXT ===
-
-Based on the context above, answer the following question. If the answer is not in the context, say so."""
-        else:
-            system_with_context = config.SYSTEM_PROMPT
-        
-        # Build conversation (Qwen format)
-        prompt = f"<|im_start|>system\n{system_with_context}<|im_end|>\n"
-        
-        # Add history (last 3 exchanges max)
-        for h in self.history[-3:]:
-            prompt += f"<|im_start|>user\n{h['user']}<|im_end|>\n"
-            prompt += f"<|im_start|>assistant\n{h['assistant']}<|im_end|>\n"
-        
-        # Add current message
-        prompt += f"<|im_start|>user\n{message}<|im_end|>\n"
-        prompt += "<|im_start|>assistant\n"
-        
-        print(f"[Engine] Prompt length: {len(prompt)} chars")
-        print(f"[Engine] Has RAG context: {bool(rag_context)}")
-        
-        # Generate
-        full_response = ""
-        try:
-            for chunk in self.llm(
-                prompt,
-                max_tokens=config.MAX_TOKENS,
-                stop=config.STOP_TOKENS,
-                stream=True
-            ):
-                token = chunk["choices"][0]["text"]
-                full_response += token
-                yield token
-        except Exception as e:
-            print(f"[Engine] Generation error: {e}")
-            yield f"\n[Error: {e}]"
-        
-        # Save to history
-        if full_response.strip():
-            self.history.append({
-                "user": message,
-                "assistant": full_response.strip()
-            })
-    
-    def clear_history(self):
-        """Clears conversation history."""
-        self.history = []
-        print("[Engine] History cleared")
+        lines = ["", "📚 Sources used:"]
+        for src in self.last_sources:
+            lines.append(f"  [{src['index']}] {src['source']} (chunk {src['chunk_id']}, score: {src['score']:.2f})")
+            # Show preview (first 150 chars)
+            preview = src['preview'][:150].repla
