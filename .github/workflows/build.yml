@@ -18,8 +18,7 @@ jobs:
           python-version: '3.11'
       
       - name: Install llama-cpp-python with AVX2
-        run: |
-          pip install llama-cpp-python --prefer-binary
+        run: pip install llama-cpp-python --prefer-binary
         shell: bash
       
       - name: Install other deps
@@ -38,13 +37,7 @@ jobs:
         shell: bash
       
       - name: Pre-download and save embedding model
-        run: |
-          python -c "
-from sentence_transformers import SentenceTransformer
-model = SentenceTransformer('BAAI/bge-small-en-v1.5')
-model.save('embedding_model')
-print('Embedding model saved to ./embedding_model')
-"
+        run: python -c "from sentence_transformers import SentenceTransformer; m = SentenceTransformer('BAAI/bge-small-en-v1.5'); m.save('embedding_model'); print('Saved')"
         shell: bash
       
       - name: Create data folder
@@ -97,8 +90,7 @@ print('Embedding model saved to ./embedding_model')
       - name: Install llama-cpp-python with Metal EMBEDDED
         env:
           CMAKE_ARGS: "-DGGML_METAL=on -DGGML_METAL_EMBED_LIBRARY=ON"
-        run: |
-          pip install llama-cpp-python --no-cache-dir --force-reinstall --verbose
+        run: pip install llama-cpp-python --no-cache-dir --force-reinstall --verbose
       
       - name: Verify Metal support
         run: |
@@ -120,13 +112,7 @@ print('Embedding model saved to ./embedding_model')
           curl -L -o models/model.gguf https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/main/qwen2.5-0.5b-instruct-q4_k_m.gguf
       
       - name: Pre-download and save embedding model
-        run: |
-          python -c "
-from sentence_transformers import SentenceTransformer
-model = SentenceTransformer('BAAI/bge-small-en-v1.5')
-model.save('embedding_model')
-print('Embedding model saved to ./embedding_model')
-"
+        run: python -c "from sentence_transformers import SentenceTransformer; m = SentenceTransformer('BAAI/bge-small-en-v1.5'); m.save('embedding_model'); print('Saved')"
       
       - name: Create data folder
         run: mkdir data
