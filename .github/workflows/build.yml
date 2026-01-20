@@ -39,7 +39,7 @@ jobs:
       
       - name: Pre-download embedding model
         run: |
-          python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('paraphrase-MiniLM-L3-v2')"
+          python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('BAAI/bge-small-en-v1.5')"
         shell: bash
       
       - name: Create data folder
@@ -115,7 +115,7 @@ jobs:
       
       - name: Pre-download embedding model
         run: |
-          python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('paraphrase-MiniLM-L3-v2')"
+          python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('BAAI/bge-small-en-v1.5')"
       
       - name: Create data folder
         run: mkdir data
