@@ -1,6 +1,6 @@
 """
 LLM Engine with RAG (embeddings) and conversation history.
-IMPROVED: Better chunking, better embeddings, better retrieval, SOURCE DISPLAY
+FIXED: Loads bundled embedding model, no downloads at runtime.
 """
 
 import os
@@ -49,13 +49,13 @@ def get_writable_path(filename: str) -> str:
 
 
 class EmbeddingModel:
-    """Embedding model using sentence-transformers."""
+    """Embedding model using sentence-transformers - loads from bundled folder."""
     
     def __init__(self):
         self.model = None
     
     def load(self, on_progress: Optional[Callable[[str], None]] = None):
-        """Loads the embedding model."""
+        """Loads the embedding model from bundled files (no download)."""
         def log(msg):
             print(f"[Embedding] {msg}")
             if on_progress:
@@ -64,12 +64,19 @@ class EmbeddingModel:
         try:
             from sentence_transformers import SentenceTransformer
             
-            model_name = getattr(config, 'EMBEDDING_MODEL', 'BAAI/bge-small-en-v1.5')
-            log(f"Loading embedding model: {model_name}")
+            # Load from bundled folder - NO DOWNLOAD
+            bundled_model_path = get_resource_path(config.EMBEDDING_MODEL_FOLDER)
             
-            self.model = SentenceTransformer(model_name)
-            log("Embedding model loaded!")
-            return True
+            if os.path.exists(bundled_model_path):
+                log(f"Loading bundled embedding model: {bundled_model_path}")
+                self.model = SentenceTransformer(bundled_model_path)
+                log("Embedding model loaded!")
+                return True
+            else:
+                log(f"Bundled model not found at: {bundled_model_path}")
+                log("Falling back to keyword search")
+                return False
+                
         except Exception as e:
             log(f"Error loading embedding model: {e}")
             return False
@@ -79,7 +86,8 @@ class EmbeddingModel:
         if self.model is None:
             return np.array([])
         
-        if is_query and 'bge' in getattr(config, 'EMBEDDING_MODEL', '').lower():
+        # BGE models work better with query prefix
+        if is_query:
             texts = [f"Represent this sentence for searching relevant passages: {t}" for t in texts]
         
         return self.model.encode(texts, normalize_embeddings=True, show_progress_bar=False)
@@ -124,8 +132,6 @@ class RAG:
         log("Loading embedding model...")
         if not self.embedding_model.load(on_progress):
             log("Embedding model failed, using keyword search")
-            self._load_documents_simple()
-            return True
         
         if os.path.exists(self.index_file) and os.path.exists(self.embeddings_file):
             log("Loading existing index...")
@@ -147,7 +153,12 @@ class RAG:
         try:
             with open(self.index_file, "r", encoding="utf-8") as f:
                 self.documents = json.load(f)
-            self.embeddings = np.load(self.embeddings_file)
+            
+            if os.path.exists(self.embeddings_file) and self.embedding_model.model is not None:
+                self.embeddings = np.load(self.embeddings_file)
+            else:
+                self.embeddings = None
+                
             print(f"[RAG] Index loaded: {len(self.documents)} docs")
         except Exception as e:
             print(f"[RAG] Error loading index: {e}")
@@ -358,31 +369,6 @@ class RAG:
         self.documents = all_chunks
         self._save_index(log)
     
-    def _load_documents_simple(self):
-        """Fallback: loads documents without embeddings."""
-        folders = [self.bundled_data_folder, self.user_docs_folder]
-        
-        for folder in folders:
-            if not os.path.exists(folder):
-                continue
-            
-            for filename in os.listdir(folder):
-                ext = os.path.splitext(filename)[1].lower()
-                if ext in self.SUPPORTED_EXTENSIONS:
-                    file_path = os.path.join(folder, filename)
-                    try:
-                        text = self._read_document(file_path)
-                        if text:
-                            chunks = self._split_text(text, config.RAG_CHUNK_SIZE)
-                            for i, chunk in enumerate(chunks):
-                                self.documents.append({
-                                    "source": filename,
-                                    "chunk_id": i,
-                                    "content": chunk
-                                })
-                    except:
-                        pass
-    
     def search(self, query: str, top_k: int = None) -> Tuple[str, List[dict]]:
         """Searches documents using semantic or keyword search."""
         if not self.documents:
@@ -412,7 +398,7 @@ class RAG:
             
             results = results[:top_k]
         else:
-            # Keyword fallback - improved scoring
+            # Keyword fallback
             query_words = set(query.lower().split())
             scored = []
             
@@ -420,21 +406,21 @@ class RAG:
                 content_lower = doc["content"].lower()
                 content_words = set(content_lower.split())
                 
-                # Count matching words
                 matches = query_words & content_words
                 score = len(matches)
                 
-                # Bonus for exact phrase matches
                 for word in query_words:
                     if word in content_lower:
                         score += 0.5
                 
                 if score > 0:
                     scored.append((doc, score))
-                    print(f"[RAG] ✓ {doc['source']} chunk {doc['chunk_id']} (keyword score: {score:.1f})")
             
             scored.sort(key=lambda x: x[1], reverse=True)
             results = scored[:top_k]
+            
+            for doc, score in results:
+                print(f"[RAG] ✓ {doc['source']} chunk {doc['chunk_id']} (keyword score: {score:.1f})")
         
         if not results:
             print("[RAG] No matches found")
