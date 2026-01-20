@@ -175,12 +175,11 @@ class ChatUI:
     
     def _load_files(self):
         """Opens file dialog to load documents."""
-        # FIX: Prevent focus issues on macOS
         self.root.attributes('-topmost', True)
         self.root.update()
         
         files = filedialog.askopenfilenames(
-            parent=self.root,  # FIX: Explicitly set parent
+            parent=self.root,
             title="Select documents",
             filetypes=[
                 ("All supported", "*.txt *.md *.pdf *.xlsx *.xls *.pptx *.ppt *.py *.js *.json *.csv *.xml *.yaml *.yml"),
