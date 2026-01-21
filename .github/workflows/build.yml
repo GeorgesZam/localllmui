@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 
 jobs:
-  # === WINDOWS (AVX2 optimisé) ===
+  # === WINDOWS (AVX2 + OCR) ===
   build-windows:
     runs-on: windows-latest
     
@@ -17,11 +17,21 @@ jobs:
         with:
           python-version: '3.11'
       
+      - name: Install Tesseract OCR
+        run: |
+          choco install tesseract --no-progress
+          echo "C:\Program Files\Tesseract-OCR" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+        shell: pwsh
+      
+      - name: Install Poppler (for pdf2image)
+        run: choco install poppler --no-progress
+        shell: pwsh
+      
       - name: Install llama-cpp-python with AVX2
         run: pip install llama-cpp-python --prefer-binary
         shell: bash
       
-      - name: Install other deps
+      - name: Install dependencies
         run: |
           pip install pyinstaller
           pip install sentence-transformers
@@ -29,6 +39,10 @@ jobs:
           pip install PyPDF2
           pip install openpyxl
           pip install python-pptx
+          pip install python-docx
+          pip install pytesseract
+          pip install pdf2image
+          pip install Pillow
       
       - name: Download LLM model
         run: |
@@ -63,8 +77,12 @@ jobs:
             --hidden-import PyPDF2 `
             --hidden-import openpyxl `
             --hidden-import pptx `
+            --hidden-import docx `
             --hidden-import torch `
             --hidden-import transformers `
+            --hidden-import pytesseract `
+            --hidden-import pdf2image `
+            --hidden-import PIL `
             main.py
         shell: pwsh
       
@@ -73,7 +91,7 @@ jobs:
           name: LocalChat-Windows
           path: src/dist/*.exe
 
-  # === MACOS (Metal GPU optimisé) ===
+  # === MACOS (Metal GPU + OCR) ===
   build-macos:
     runs-on: macos-14
     
@@ -84,8 +102,11 @@ jobs:
         with:
           python-version: '3.11'
       
-      - name: Install build tools
-        run: brew install cmake
+      - name: Install build tools and OCR dependencies
+        run: |
+          brew install cmake
+          brew install tesseract
+          brew install poppler
       
       - name: Install llama-cpp-python with Metal EMBEDDED
         env:
@@ -97,7 +118,7 @@ jobs:
           python -c "import llama_cpp; print('llama-cpp-python installed successfully')"
           python -c "from llama_cpp import Llama; print('Llama import OK')"
       
-      - name: Install other deps
+      - name: Install dependencies
         run: |
           pip install pyinstaller
           pip install sentence-transformers
@@ -105,6 +126,10 @@ jobs:
           pip install PyPDF2
           pip install openpyxl
           pip install python-pptx
+          pip install python-docx
+          pip install pytesseract
+          pip install pdf2image
+          pip install Pillow
       
       - name: Download LLM model
         run: |
@@ -121,8 +146,6 @@ jobs:
         run: |
           LLAMA_PATH=$(python -c "import llama_cpp; import os; print(os.path.dirname(llama_cpp.__file__))")
           ST_PATH=$(python -c "import sentence_transformers; import os; print(os.path.dirname(sentence_transformers.__file__))")
-          echo "LLAMA_PATH: $LLAMA_PATH"
-          echo "SENTENCE_TRANSFORMERS_PATH: $ST_PATH"
           
           cd src
           pyinstaller --onefile --windowed --name "LocalChat" \
@@ -141,8 +164,12 @@ jobs:
             --hidden-import PyPDF2 \
             --hidden-import openpyxl \
             --hidden-import pptx \
+            --hidden-import docx \
             --hidden-import torch \
             --hidden-import transformers \
+            --hidden-import pytesseract \
+            --hidden-import pdf2image \
+            --hidden-import PIL \
             main.py
       
       - name: Create ZIP
