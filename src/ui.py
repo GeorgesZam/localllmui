@@ -1,16 +1,20 @@
 """
-User Interface.
+Modern User Interface with CustomTkinter.
 """
 
-import tkinter as tk
-from tkinter import scrolledtext, filedialog
+import customtkinter as ctk
+from tkinter import filedialog
 import config
+
+# Configuration du thème
+ctk.set_appearance_mode("dark")
+ctk.set_default_color_theme("blue")
 
 
 class ChatUI:
-    """Chat user interface."""
+    """Modern chat user interface with CustomTkinter."""
     
-    def __init__(self, root: tk.Tk, on_send, on_clear, on_load_files):
+    def __init__(self, root: ctk.CTk, on_send, on_clear, on_load_files):
         self.root = root
         self.on_send = on_send
         self.on_clear = on_clear
@@ -20,180 +24,217 @@ class ChatUI:
         self._create_widgets()
     
     def _setup_window(self):
-        """Configures main window."""
+        """Configure la fenêtre principale."""
         self.root.title(f"🤖 {config.APP_NAME}")
         self.root.geometry(config.WINDOW_SIZE)
-        self.root.configure(bg=config.COLORS["bg"])
+        
+        # Configuration grid pour responsive
+        self.root.grid_rowconfigure(2, weight=1)
+        self.root.grid_columnconfigure(0, weight=1)
     
     def _create_widgets(self):
-        """Creates all UI widgets."""
-        c = config.COLORS
-        f = config.FONTS
+        """Crée tous les widgets de l'interface."""
         
-        # Header
-        header = tk.Frame(self.root, bg=c["bg"])
-        header.pack(fill=tk.X, padx=20, pady=15)
+        # === HEADER ===
+        header_frame = ctk.CTkFrame(self.root, fg_color="transparent")
+        header_frame.grid(row=0, column=0, padx=20, pady=(20, 10), sticky="ew")
         
-        tk.Label(
-            header, 
+        # Titre
+        title_label = ctk.CTkLabel(
+            header_frame,
             text=f"🤖 {config.APP_NAME}",
-            font=f["title"],
-            bg=c["bg"],
-            fg=c["fg"]
-        ).pack(side=tk.LEFT)
+            font=ctk.CTkFont(family="Arial", size=28, weight="bold")
+        )
+        title_label.pack(side="left")
         
-        self.status = tk.Label(
-            header,
+        # Status avec couleur dynamique
+        self.status = ctk.CTkLabel(
+            header_frame,
             text="⏳ Loading...",
-            font=("Arial", 11),
-            bg=c["bg"],
-            fg=c["system"]
+            font=ctk.CTkFont(size=13),
+            text_color=("#888888", "#888888")
         )
-        self.status.pack(side=tk.RIGHT)
+        self.status.pack(side="right", padx=10)
         
-        # Buttons
-        btn_frame = tk.Frame(self.root, bg=c["bg"])
-        btn_frame.pack(fill=tk.X, padx=20)
+        # === TOOLBAR (Boutons) ===
+        toolbar = ctk.CTkFrame(self.root, fg_color="transparent")
+        toolbar.grid(row=1, column=0, padx=20, pady=(0, 10), sticky="ew")
         
-        tk.Button(
-            btn_frame,
+        # Bouton Load Files
+        self.load_btn = ctk.CTkButton(
+            toolbar,
             text="📁 Load Files",
-            font=f["button"],
-            bg=c["accent"],
-            fg="white",
-            relief=tk.FLAT,
-            command=self._load_files
-        ).pack(side=tk.LEFT, padx=(0, 10))
-        
-        tk.Button(
-            btn_frame,
-            text="🗑️ Clear",
-            font=f["button"],
-            bg=c["accent"],
-            fg="white",
-            relief=tk.FLAT,
-            command=self.on_clear
-        ).pack(side=tk.LEFT)
-        
-        # Chat area
-        chat_frame = tk.Frame(self.root, bg=c["bg"])
-        chat_frame.pack(fill=tk.BOTH, expand=True, padx=20, pady=10)
-        
-        self.chat = scrolledtext.ScrolledText(
-            chat_frame,
-            wrap=tk.WORD,
-            font=f["chat"],
-            bg=c["bg_chat"],
-            fg=c["fg"],
-            relief=tk.FLAT,
-            padx=10,
-            pady=10
+            command=self._load_files,
+            width=140,
+            height=36,
+            corner_radius=8,
+            font=ctk.CTkFont(size=13, weight="bold"),
+            fg_color=("#4a9eff", "#3b7ac7"),
+            hover_color=("#3b7ac7", "#2d5f9e")
         )
-        self.chat.pack(fill=tk.BOTH, expand=True)
-        self.chat.config(state=tk.DISABLED)
+        self.load_btn.pack(side="left", padx=(0, 10))
         
-        # Tags
-        self.chat.tag_configure("user", foreground=c["user"], font=(f["chat"][0], f["chat"][1], "bold"))
-        self.chat.tag_configure("bot", foreground=c["bot"], font=(f["chat"][0], f["chat"][1], "bold"))
-        self.chat.tag_configure("system", foreground=c["system"])
-        self.chat.tag_configure("error", foreground=c["error"])
-        
-        # Input area
-        input_frame = tk.Frame(self.root, bg=c["bg"])
-        input_frame.pack(fill=tk.X, padx=20, pady=15)
-        
-        self.input = tk.Text(
-            input_frame,
-            height=2,
-            font=f["chat"],
-            bg=c["bg_chat"],
-            fg=c["fg"],
-            relief=tk.FLAT,
-            padx=10,
-            pady=8
+        # Bouton Clear
+        self.clear_btn = ctk.CTkButton(
+            toolbar,
+            text="🗑️ Clear Chat",
+            command=self.on_clear,
+            width=130,
+            height=36,
+            corner_radius=8,
+            font=ctk.CTkFont(size=13, weight="bold"),
+            fg_color=("#ff5555", "#cc4444"),
+            hover_color=("#ff7777", "#dd5555")
         )
-        self.input.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 10))
+        self.clear_btn.pack(side="left")
+        
+        # Info documents
+        self.doc_info = ctk.CTkLabel(
+            toolbar,
+            text="📚 No documents loaded",
+            font=ctk.CTkFont(size=12),
+            text_color=("#888888", "#888888")
+        )
+        self.doc_info.pack(side="right", padx=10)
+        
+        # === CHAT AREA ===
+        chat_container = ctk.CTkFrame(self.root, corner_radius=10)
+        chat_container.grid(row=2, column=0, padx=20, pady=(0, 10), sticky="nsew")
+        chat_container.grid_rowconfigure(0, weight=1)
+        chat_container.grid_columnconfigure(0, weight=1)
+        
+        self.chat = ctk.CTkTextbox(
+            chat_container,
+            wrap="word",
+            font=ctk.CTkFont(family="Consolas", size=12),
+            corner_radius=10,
+            border_width=0,
+            activate_scrollbars=True,
+            fg_color=("#1e1e2e", "#16213e"),
+            scrollbar_button_color=("#4a9eff", "#3b7ac7"),
+            scrollbar_button_hover_color=("#3b7ac7", "#2d5f9e")
+        )
+        self.chat.grid(row=0, column=0, sticky="nsew", padx=2, pady=2)
+        
+        # === INPUT AREA ===
+        input_container = ctk.CTkFrame(self.root, fg_color="transparent")
+        input_container.grid(row=3, column=0, padx=20, pady=(0, 20), sticky="ew")
+        input_container.grid_columnconfigure(0, weight=1)
+        
+        # Input text
+        self.input = ctk.CTkTextbox(
+            input_container,
+            height=70,
+            font=ctk.CTkFont(family="Consolas", size=12),
+            corner_radius=10,
+            border_width=2,
+            border_color=("#4a9eff", "#3b7ac7"),
+            fg_color=("#1e1e2e", "#16213e")
+        )
+        self.input.grid(row=0, column=0, sticky="ew", padx=(0, 10))
         self.input.bind("<Return>", self._on_enter)
+        self.input.bind("<Shift-Return>", self._on_shift_enter)
         
-        self.send_btn = tk.Button(
-            input_frame,
-            text="Send",
-            font=f["button"],
-            bg=c["accent"],
-            fg="white",
-            relief=tk.FLAT,
-            padx=20,
-            command=self._send
+        # Send button
+        self.send_btn = ctk.CTkButton(
+            input_container,
+            text="Send ➤",
+            command=self._send,
+            width=100,
+            height=70,
+            corner_radius=10,
+            font=ctk.CTkFont(size=14, weight="bold"),
+            fg_color=("#50fa7b", "#40c969"),
+            hover_color=("#40c969", "#30b959"),
+            text_color=("#000000", "#000000")
         )
-        self.send_btn.pack(side=tk.RIGHT)
+        self.send_btn.grid(row=0, column=1)
     
     def _on_enter(self, event):
-        if not (event.state & 0x1):  # Shift not pressed
+        """Gère l'appui sur Entrée."""
+        if not (event.state & 0x1):  # Shift non pressé
             self._send()
             return "break"
     
+    def _on_shift_enter(self, event):
+        """Permet le saut de ligne avec Shift+Entrée."""
+        return None
+    
     def _send(self):
-        text = self.input.get("1.0", tk.END).strip()
+        """Envoie le message."""
+        text = self.input.get("0.0", "end").strip()
         if text:
-            self.input.delete("1.0", tk.END)
+            self.input.delete("0.0", "end")
             self.on_send(text)
     
     def set_status(self, text: str, is_error: bool = False):
-        """Updates status label."""
-        color = config.COLORS["error"] if is_error else config.COLORS["bot"]
-        self.status.config(text=text, fg=color)
+        """Met à jour le status."""
+        if is_error:
+            color = ("#ff5555", "#ff5555")
+        else:
+            color = ("#50fa7b", "#50fa7b")
+        
+        self.status.configure(text=text, text_color=color)
+    
+    def update_doc_count(self, count: int):
+        """Met à jour le compteur de documents."""
+        if count == 0:
+            text = "📚 No documents loaded"
+            color = ("#888888", "#888888")
+        else:
+            text = f"📚 {count} document{'s' if count > 1 else ''} loaded"
+            color = ("#50fa7b", "#50fa7b")
+        
+        self.doc_info.configure(text=text, text_color=color)
     
     def add_message(self, sender: str, text: str, tag: str = ""):
-        """Adds a message to chat."""
-        self.chat.config(state=tk.NORMAL)
-        self.chat.insert(tk.END, f"\n{sender}:\n", tag)
-        self.chat.insert(tk.END, f"{text}\n")
-        self.chat.config(state=tk.DISABLED)
-        self.chat.see(tk.END)
+        """Ajoute un message au chat avec formatage couleur."""
+        current_text = self.chat.get("0.0", "end")
+        
+        if current_text.strip():
+            self.chat.insert("end", "\n")
+        
+        self.chat.insert("end", f"{sender}:\n")
+        self.chat.insert("end", f"{text}\n")
+        self.chat.see("end")
     
     def stream(self, text: str):
-        """Streams text to chat."""
-        self.chat.config(state=tk.NORMAL)
-        self.chat.insert(tk.END, text)
-        self.chat.config(state=tk.DISABLED)
-        self.chat.see(tk.END)
+        """Streaming de texte (pour la génération)."""
+        self.chat.insert("end", text)
+        self.chat.see("end")
     
     def clear_chat(self):
-        """Clears chat display."""
-        self.chat.config(state=tk.NORMAL)
-        self.chat.delete("1.0", tk.END)
-        self.chat.config(state=tk.DISABLED)
+        """Efface le contenu du chat."""
+        self.chat.delete("0.0", "end")
     
     def set_enabled(self, enabled: bool):
-        """Enables/disables input."""
-        state = tk.NORMAL if enabled else tk.DISABLED
-        self.send_btn.config(state=state)
+        """Active/désactive les contrôles."""
+        state = "normal" if enabled else "disabled"
+        self.send_btn.configure(state=state)
+        self.input.configure(state=state)
     
     def focus_input(self):
-        """Focuses input field."""
+        """Focus sur l'input."""
         self.input.focus_set()
     
     def _load_files(self):
-        """Opens file dialog to load documents."""
-        self.root.attributes('-topmost', True)
-        self.root.update()
-        
+        """Ouvre le dialogue de sélection de fichiers."""
         files = filedialog.askopenfilenames(
             parent=self.root,
-            title="Select documents",
+            title="Select documents to load",
             filetypes=[
-                ("All supported", "*.txt *.md *.pdf *.xlsx *.xls *.pptx *.ppt *.py *.js *.json *.csv *.xml *.yaml *.yml"),
-                ("Text files", "*.txt *.md"),
-                ("Code files", "*.py *.js *.ts *.java *.c *.cpp *.go *.rs"),
-                ("PDF files", "*.pdf"),
-                ("Excel files", "*.xlsx *.xls"),
-                ("PowerPoint files", "*.pptx *.ppt"),
-                ("Data files", "*.json *.csv *.xml *.yaml *.yml"),
+                ("All supported files", 
+                 "*.txt *.md *.pdf *.xlsx *.xls *.pptx *.ppt *.docx *.doc "
+                 "*.py *.js *.ts *.java *.c *.cpp *.json *.csv *.xml *.yaml *.yml *.html *.css "
+                 "*.png *.jpg *.jpeg *.tiff *.bmp"),
+                ("Documents", "*.txt *.md *.pdf *.docx *.doc"),
+                ("Spreadsheets", "*.xlsx *.xls *.csv"),
+                ("Presentations", "*.pptx *.ppt"),
+                ("Code files", "*.py *.js *.ts *.java *.c *.cpp *.json *.html *.css *.xml *.yaml *.yml"),
+                ("Images (OCR)", "*.png *.jpg *.jpeg *.tiff *.bmp"),
                 ("All files", "*.*")
             ]
         )
-        
-        self.root.attributes('-topmost', False)
         
         if files:
             self.on_load_files(files)
