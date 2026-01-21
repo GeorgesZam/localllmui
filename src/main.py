@@ -6,17 +6,16 @@ Local Chat - Entry point.
 import sys
 import os
 
-# FIX: Prevent macOS from relaunching app on file dialog
+# macOS fixes
 if sys.platform == 'darwin':
     os.environ['TK_SILENCE_DEPRECATION'] = '1'
-    # Prevent multiprocessing issues with PyInstaller
     if hasattr(sys, '_MEIPASS'):
         import multiprocessing
         multiprocessing.freeze_support()
 
 import tkinter as tk
 import threading
-from engine import LLMEngine
+from llm import LLMEngine  # Changed from engine
 from ui import ChatUI
 
 
@@ -39,21 +38,21 @@ class App:
         self._load_model()
     
     def _load_model(self):
-        """Loads model in background."""
+        """Load model in background."""
         def task():
             success = self.engine.load(
                 on_progress=lambda m: self.root.after(0, lambda: self.ui.add_message("Debug", m, "system"))
             )
             if success:
                 self.root.after(0, lambda: self.ui.set_status("✅ Ready"))
-                self.root.after(0, lambda: self.ui.add_message("System", "Model loaded! Start chatting.", "system"))
+                self.root.after(0, lambda: self.ui.add_message("System", "Ready! Start chatting.", "system"))
             else:
                 self.root.after(0, lambda: self.ui.set_status("❌ Error", is_error=True))
         
         threading.Thread(target=task, daemon=True).start()
     
     def send(self, message: str):
-        """Sends a message."""
+        """Send a message."""
         if self.generating or not self.engine.is_ready:
             return
         
@@ -64,7 +63,7 @@ class App:
         threading.Thread(target=self._generate, args=(message,), daemon=True).start()
     
     def _generate(self, message: str):
-        """Generates response."""
+        """Generate response."""
         self.root.after(0, lambda: self.ui.add_message("Assistant", "", "bot"))
         
         try:
@@ -82,13 +81,13 @@ class App:
         self.ui.focus_input()
     
     def clear(self):
-        """Clears chat and history."""
+        """Clear chat and history."""
         self.engine.clear_history()
         self.ui.clear_chat()
         self.ui.add_message("System", "Conversation cleared.", "system")
     
     def load_files(self, files: tuple):
-        """Loads new documents into RAG."""
+        """Load documents into RAG."""
         self.ui.add_message("System", f"Loading {len(files)} file(s)...", "system")
         
         def task():
@@ -97,14 +96,14 @@ class App:
                 on_progress=lambda m: self.root.after(0, lambda: self.ui.add_message("Debug", m, "system"))
             )
             if success:
-                self.root.after(0, lambda: self.ui.add_message("System", "✅ Files loaded successfully!", "system"))
+                self.root.after(0, lambda: self.ui.add_message("System", "✅ Files loaded!", "system"))
             else:
-                self.root.after(0, lambda: self.ui.add_message("Error", "Failed to load files", "error"))
+                self.root.after(0, lambda: self.ui.add_message("Error", "Failed to load", "error"))
         
         threading.Thread(target=task, daemon=True).start()
     
     def run(self):
-        """Runs the app."""
+        """Run the app."""
         self.root.mainloop()
 
 
