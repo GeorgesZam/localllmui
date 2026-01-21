@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Local Chat - Entry point.
+Local Chat - Modern Entry Point with CustomTkinter.
 """
 
 import sys
@@ -13,17 +13,17 @@ if sys.platform == 'darwin':
         import multiprocessing
         multiprocessing.freeze_support()
 
-import tkinter as tk
+import customtkinter as ctk
 import threading
-from llm import LLMEngine  # Changed from engine
-from ui import ChatUI
+from llm import LLMEngine
+from ui_modern import ChatUI
 
 
 class App:
-    """Main application."""
+    """Application principale modernisée."""
     
     def __init__(self):
-        self.root = tk.Tk()
+        self.root = ctk.CTk()
         self.engine = LLMEngine()
         self.generating = False
         
@@ -34,78 +34,111 @@ class App:
             on_load_files=self.load_files
         )
         
-        self.ui.add_message("System", "Starting...", "system")
+        self.ui.add_message("System", "🚀 Starting up...", "system")
         self._load_model()
     
     def _load_model(self):
-        """Load model in background."""
+        """Charge le modèle en arrière-plan."""
         def task():
             success = self.engine.load(
                 on_progress=lambda m: self.root.after(0, lambda: self.ui.add_message("Debug", m, "system"))
             )
             if success:
-                self.root.after(0, lambda: self.ui.set_status("✅ Ready"))
-                self.root.after(0, lambda: self.ui.add_message("System", "Ready! Start chatting.", "system"))
+                self.root.after(0, lambda: self.ui.set_status("✅ Ready to chat!"))
+                self.root.after(0, lambda: self.ui.add_message(
+                    "System", 
+                    "✨ Ready! Ask me anything or load documents for context.", 
+                    "system"
+                ))
+                doc_count = len(self.engine.rag.documents) if self.engine.rag else 0
+                self.root.after(0, lambda: self.ui.update_doc_count(doc_count))
             else:
-                self.root.after(0, lambda: self.ui.set_status("❌ Error", is_error=True))
+                self.root.after(0, lambda: self.ui.set_status("❌ Failed to load", is_error=True))
+                error_msg = self.engine.error or "Unknown error"
+                self.root.after(0, lambda: self.ui.add_message(
+                    "Error", 
+                    f"Failed to initialize: {error_msg}", 
+                    "error"
+                ))
         
         threading.Thread(target=task, daemon=True).start()
     
     def send(self, message: str):
-        """Send a message."""
+        """Envoie un message."""
         if self.generating or not self.engine.is_ready:
             return
         
         self.ui.add_message("You", message, "user")
         self.generating = True
         self.ui.set_enabled(False)
+        self.ui.set_status("🤔 Thinking...")
         
         threading.Thread(target=self._generate, args=(message,), daemon=True).start()
     
     def _generate(self, message: str):
-        """Generate response."""
+        """Génère la réponse."""
         self.root.after(0, lambda: self.ui.add_message("Assistant", "", "bot"))
         
         try:
             for token in self.engine.generate(message):
                 self.root.after(0, lambda t=token: self.ui.stream(t))
         except Exception as e:
-            self.root.after(0, lambda: self.ui.add_message("Error", str(e), "error"))
+            error_msg = f"Generation error: {str(e)}"
+            self.root.after(0, lambda: self.ui.add_message("Error", error_msg, "error"))
+            print(f"[App] {error_msg}")
+            import traceback
+            traceback.print_exc()
         finally:
             self.root.after(0, self._done)
     
     def _done(self):
-        """Generation complete."""
+        """Génération terminée."""
         self.generating = False
         self.ui.set_enabled(True)
+        self.ui.set_status("✅ Ready to chat!")
         self.ui.focus_input()
     
     def clear(self):
-        """Clear chat and history."""
+        """Efface le chat et l'historique."""
         self.engine.clear_history()
         self.ui.clear_chat()
-        self.ui.add_message("System", "Conversation cleared.", "system")
+        self.ui.add_message("System", "💬 Conversation cleared. Fresh start!", "system")
     
     def load_files(self, files: tuple):
-        """Load documents into RAG."""
-        self.ui.add_message("System", f"Loading {len(files)} file(s)...", "system")
+        """Charge des documents dans le RAG."""
+        self.ui.add_message("System", f"📥 Loading {len(files)} file(s)...", "system")
+        self.ui.set_status("⏳ Loading files...")
         
         def task():
             success = self.engine.rag.add_documents(
                 files,
-                on_progress=lambda m: self.root.after(0, lambda: self.ui.add_message("Debug", m, "system"))
+                on_progress=lambda m: self.root.after(0, lambda msg=m: self.ui.add_message("Debug", msg, "system"))
             )
+            
             if success:
-                self.root.after(0, lambda: self.ui.add_message("System", "✅ Files loaded!", "system"))
+                doc_count = len(self.engine.rag.documents)
+                self.root.after(0, lambda: self.ui.update_doc_count(doc_count))
+                self.root.after(0, lambda: self.ui.add_message(
+                    "System", 
+                    f"✅ Successfully loaded! Now you can ask questions about your documents.", 
+                    "system"
+                ))
+                self.root.after(0, lambda: self.ui.set_status("✅ Ready to chat!"))
             else:
-                self.root.after(0, lambda: self.ui.add_message("Error", "Failed to load", "error"))
+                self.root.after(0, lambda: self.ui.add_message(
+                    "Error", 
+                    "❌ Failed to load files. Check console for details.", 
+                    "error"
+                ))
+                self.root.after(0, lambda: self.ui.set_status("❌ Load failed", is_error=True))
         
         threading.Thread(target=task, daemon=True).start()
     
     def run(self):
-        """Run the app."""
+        """Lance l'application."""
         self.root.mainloop()
 
 
 if __name__ == "__main__":
-    App().run()
+    app = App()
+    app.run()
