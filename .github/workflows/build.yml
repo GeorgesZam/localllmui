@@ -1,4 +1,4 @@
-name: Build Local Chat Modern
+name: Build Local Chat
 
 on:
   push:
@@ -58,14 +58,14 @@ jobs:
       - name: Create data folder
         run: mkdir data
       
-      - name: Build Modern Version
+      - name: Build
         run: |
           $llamaPath = python -c "import llama_cpp; import os; print(os.path.dirname(llama_cpp.__file__))"
           $stPath = python -c "import sentence_transformers; import os; print(os.path.dirname(sentence_transformers.__file__))"
           $ctkPath = python -c "import customtkinter; import os; print(os.path.dirname(customtkinter.__file__))"
           
           cd src
-          pyinstaller --onefile --windowed --name "LocalChat-Modern" `
+          pyinstaller --onefile --windowed --name "LocalChat" `
             --add-data "../models;models" `
             --add-data "../data;data" `
             --add-data "../embedding_model;embedding_model" `
@@ -89,12 +89,12 @@ jobs:
             --hidden-import pytesseract `
             --hidden-import pdf2image `
             --hidden-import PIL `
-            main_modern.py
+            main.py
         shell: pwsh
       
       - uses: actions/upload-artifact@v4
         with:
-          name: LocalChat-Modern-Windows
+          name: LocalChat-Windows
           path: src/dist/*.exe
 
   # === MACOS (Metal GPU + OCR + CustomTkinter) ===
@@ -149,14 +149,14 @@ jobs:
       - name: Create data folder
         run: mkdir data
       
-      - name: Build Modern app
+      - name: Build app
         run: |
           LLAMA_PATH=$(python -c "import llama_cpp; import os; print(os.path.dirname(llama_cpp.__file__))")
           ST_PATH=$(python -c "import sentence_transformers; import os; print(os.path.dirname(sentence_transformers.__file__))")
           CTK_PATH=$(python -c "import customtkinter; import os; print(os.path.dirname(customtkinter.__file__))")
           
           cd src
-          pyinstaller --onefile --windowed --name "LocalChat-Modern" \
+          pyinstaller --onefile --windowed --name "LocalChat" \
             --add-data "../models:models" \
             --add-data "../data:data" \
             --add-data "../embedding_model:embedding_model" \
@@ -181,14 +181,14 @@ jobs:
             --hidden-import pytesseract \
             --hidden-import pdf2image \
             --hidden-import PIL \
-            main_modern.py
+            main.py
       
       - name: Create ZIP
         run: |
           cd src/dist
-          zip -r ../../LocalChat-Modern-macOS.zip LocalChat-Modern.app
+          zip -r ../../LocalChat-macOS.zip LocalChat.app
       
       - uses: actions/upload-artifact@v4
         with:
-          name: LocalChat-Modern-macOS
-          path: LocalChat-Modern-macOS.zip
+          name: LocalChat-macOS
+          path: LocalChat-macOS.zip
