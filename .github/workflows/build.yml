@@ -1,4 +1,4 @@
-name: Build Local Chat
+name: Build Local Chat Modern
 
 on:
   push:
@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 
 jobs:
-  # === WINDOWS (AVX2 + OCR) ===
+  # === WINDOWS (AVX2 + OCR + CustomTkinter) ===
   build-windows:
     runs-on: windows-latest
     
@@ -34,6 +34,7 @@ jobs:
       - name: Install dependencies
         run: |
           pip install pyinstaller
+          pip install customtkinter
           pip install sentence-transformers
           pip install numpy
           pip install PyPDF2
@@ -57,23 +58,28 @@ jobs:
       - name: Create data folder
         run: mkdir data
       
-      - name: Build
+      - name: Build Modern Version
         run: |
           $llamaPath = python -c "import llama_cpp; import os; print(os.path.dirname(llama_cpp.__file__))"
           $stPath = python -c "import sentence_transformers; import os; print(os.path.dirname(sentence_transformers.__file__))"
+          $ctkPath = python -c "import customtkinter; import os; print(os.path.dirname(customtkinter.__file__))"
+          
           cd src
-          pyinstaller --onefile --windowed --name "LocalChat" `
+          pyinstaller --onefile --windowed --name "LocalChat-Modern" `
             --add-data "../models;models" `
             --add-data "../data;data" `
             --add-data "../embedding_model;embedding_model" `
             --add-data "$llamaPath;llama_cpp" `
             --add-data "$stPath;sentence_transformers" `
+            --add-data "$ctkPath;customtkinter" `
             --collect-all llama_cpp `
             --collect-all sentence_transformers `
+            --collect-all customtkinter `
             --collect-all transformers `
             --collect-all tokenizers `
             --hidden-import llama_cpp `
             --hidden-import sentence_transformers `
+            --hidden-import customtkinter `
             --hidden-import PyPDF2 `
             --hidden-import openpyxl `
             --hidden-import pptx `
@@ -83,15 +89,15 @@ jobs:
             --hidden-import pytesseract `
             --hidden-import pdf2image `
             --hidden-import PIL `
-            main.py
+            main_modern.py
         shell: pwsh
       
       - uses: actions/upload-artifact@v4
         with:
-          name: LocalChat-Windows
+          name: LocalChat-Modern-Windows
           path: src/dist/*.exe
 
-  # === MACOS (Metal GPU + OCR) ===
+  # === MACOS (Metal GPU + OCR + CustomTkinter) ===
   build-macos:
     runs-on: macos-14
     
@@ -121,6 +127,7 @@ jobs:
       - name: Install dependencies
         run: |
           pip install pyinstaller
+          pip install customtkinter
           pip install sentence-transformers
           pip install numpy
           pip install PyPDF2
@@ -142,25 +149,29 @@ jobs:
       - name: Create data folder
         run: mkdir data
       
-      - name: Build app
+      - name: Build Modern app
         run: |
           LLAMA_PATH=$(python -c "import llama_cpp; import os; print(os.path.dirname(llama_cpp.__file__))")
           ST_PATH=$(python -c "import sentence_transformers; import os; print(os.path.dirname(sentence_transformers.__file__))")
+          CTK_PATH=$(python -c "import customtkinter; import os; print(os.path.dirname(customtkinter.__file__))")
           
           cd src
-          pyinstaller --onefile --windowed --name "LocalChat" \
+          pyinstaller --onefile --windowed --name "LocalChat-Modern" \
             --add-data "../models:models" \
             --add-data "../data:data" \
             --add-data "../embedding_model:embedding_model" \
             --add-data "$LLAMA_PATH:llama_cpp" \
             --add-data "$ST_PATH:sentence_transformers" \
+            --add-data "$CTK_PATH:customtkinter" \
             --collect-all llama_cpp \
             --collect-binaries llama_cpp \
             --collect-all sentence_transformers \
+            --collect-all customtkinter \
             --collect-all transformers \
             --collect-all tokenizers \
             --hidden-import llama_cpp \
             --hidden-import sentence_transformers \
+            --hidden-import customtkinter \
             --hidden-import PyPDF2 \
             --hidden-import openpyxl \
             --hidden-import pptx \
@@ -170,14 +181,14 @@ jobs:
             --hidden-import pytesseract \
             --hidden-import pdf2image \
             --hidden-import PIL \
-            main.py
+            main_modern.py
       
       - name: Create ZIP
         run: |
           cd src/dist
-          zip -r ../../LocalChat-macOS.zip LocalChat.app
+          zip -r ../../LocalChat-Modern-macOS.zip LocalChat-Modern.app
       
       - uses: actions/upload-artifact@v4
         with:
-          name: LocalChat-macOS
-          path: LocalChat-macOS.zip
+          name: LocalChat-Modern-macOS
+          path: LocalChat-Modern-macOS.zip
