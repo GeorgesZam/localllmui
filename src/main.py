@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Local Chat - Modern Entry Point with CustomTkinter.
+Local Chat - Entry Point with CustomTkinter.
 """
 
 import sys
@@ -16,11 +16,11 @@ if sys.platform == 'darwin':
 import customtkinter as ctk
 import threading
 from llm import LLMEngine
-from ui_modern import ChatUI
+from ui import ChatUI  # CORRIGÉ: était ui_modern
 
 
 class App:
-    """Application principale modernisée."""
+    """Application principale."""
     
     def __init__(self):
         self.root = ctk.CTk()
