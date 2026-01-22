@@ -15,7 +15,6 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-          # Pas de cache pip sans requirements.txt
       
       # Cache Tesseract et Poppler
       - name: Cache Chocolatey packages
@@ -29,8 +28,7 @@ jobs:
       
       - name: Install Tesseract OCR
         if: steps.cache-choco.outputs.cache-hit != 'true'
-        run: |
-          choco install tesseract --no-progress
+        run: choco install tesseract --no-progress
         shell: pwsh
       
       - name: Add Tesseract to PATH
@@ -57,7 +55,22 @@ jobs:
           curl -L -o models/model.gguf https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/main/qwen2.5-0.5b-instruct-q4_k_m.gguf
         shell: bash
       
-      # Cache le modèle d'embedding
+      # Cache les packages Python
+      - name: Cache Python packages
+        uses: actions/cache@v4
+        id: cache-python
+        with:
+          path: ~\AppData\Local\pip\Cache
+          key: pip-${{ runner.os }}-python311-v1
+      
+      # IMPORTANT: Installer les dépendances AVANT de télécharger l'embedding
+      - name: Install dependencies
+        run: |
+          pip install pyinstaller llama-cpp-python --prefer-binary
+          pip install customtkinter sentence-transformers numpy PyPDF2 openpyxl python-pptx python-docx pytesseract pdf2image Pillow
+        shell: bash
+      
+      # Cache le modèle d'embedding (APRÈS installation de sentence-transformers)
       - name: Cache embedding model
         uses: actions/cache@v4
         id: cache-embedding
@@ -68,21 +81,6 @@ jobs:
       - name: Pre-download embedding model
         if: steps.cache-embedding.outputs.cache-hit != 'true'
         run: python -c "from sentence_transformers import SentenceTransformer; m = SentenceTransformer('BAAI/bge-small-en-v1.5'); m.save('embedding_model'); print('Saved')"
-        shell: bash
-      
-      # Cache les packages Python
-      - name: Cache Python packages
-        uses: actions/cache@v4
-        id: cache-python
-        with:
-          path: ~\AppData\Local\pip\Cache
-          key: pip-${{ runner.os }}-${{ hashFiles('**/workflow.yml') }}
-      
-      # Installation groupée
-      - name: Install dependencies
-        run: |
-          pip install pyinstaller llama-cpp-python --prefer-binary
-          pip install customtkinter sentence-transformers numpy PyPDF2 openpyxl python-pptx python-docx pytesseract pdf2image Pillow
         shell: bash
       
       - name: Create data folder
