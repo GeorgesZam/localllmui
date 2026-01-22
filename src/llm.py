@@ -115,9 +115,19 @@ Answer based on the context above. If not found, say so."""
             yield f"\n[Error: {e}]"
         
         if config.RAG_SHOW_SOURCES and sources:
-            sources_text = self.rag.format_sources_for_display()
-            yield sources_text
-            full_response += sources_text
+            # Only show sources with meaningful relevance (0.60+ for embeddings, 2+ for keyword)
+            display_threshold = 0.60 if self.rag.embeddings is not None else 2.0
+            filtered_sources = [s for s in sources if s['score'] >= display_threshold]
+
+            if filtered_sources:
+                # Temporarily replace last_sources for display
+                original_sources = self.rag.last_sources
+                self.rag.last_sources = filtered_sources
+                sources_text = self.rag.format_sources_for_display()
+                self.rag.last_sources = original_sources
+
+                yield sources_text
+                full_response += sources_text
         
         if full_response.strip():
             clean = full_response.split("📚 Sources:")[0].strip()

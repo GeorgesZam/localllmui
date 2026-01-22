@@ -106,23 +106,28 @@ class DocumentParser:
         if not HAS_PDF:
             print("[Parser] PyPDF2 not available")
             return ""
-        
+
         try:
             text_parts = []
             scanned_pages = []
-            
+
             print(f"[Parser] Opening PDF: {file_path}")
-            
+
             with open(file_path, 'rb') as f:
                 reader = PyPDF2.PdfReader(f)
                 total_pages = len(reader.pages)
                 print(f"[Parser] PDF has {total_pages} pages")
-                
+
                 for page_num, page in enumerate(reader.pages):
                     try:
-                        page_text = (page.extract_text() or "").strip()
+                        # Extract text and ensure proper UTF-8 encoding
+                        page_text = page.extract_text() or ""
+                        # Normalize unicode characters (handles accents properly)
+                        import unicodedata
+                        page_text = unicodedata.normalize('NFC', page_text).strip()
+
                         print(f"[Parser] Page {page_num + 1}: {len(page_text)} chars")
-                        
+
                         if len(page_text) > 50:
                             text_parts.append(f"=== Page {page_num + 1} ===\n{page_text}")
                         else:
@@ -131,10 +136,10 @@ class DocumentParser:
                     except Exception as e:
                         print(f"[Parser] Error page {page_num + 1}: {e}")
                         scanned_pages.append(page_num + 1)
-            
+
             text = "\n\n".join(text_parts)
             print(f"[Parser] Extracted {len(text)} chars from {len(text_parts)} pages")
-            
+
             # OCR for scanned pages
             if scanned_pages and self.ocr.available and self.ocr.pdf_support:
                 print(f"[Parser] Running OCR on {len(scanned_pages)} scanned pages...")
@@ -142,13 +147,13 @@ class DocumentParser:
                 if ocr_text:
                     print(f"[Parser] OCR extracted {len(ocr_text)} chars")
                     text = f"{text}\n\n=== OCR Content ===\n{ocr_text}" if text else ocr_text
-            
+
             # Full OCR if no text
             if not text.strip() and total_pages > 0:
                 print("[Parser] No text, attempting full OCR...")
                 if self.ocr.available and self.ocr.pdf_support:
                     text = self.ocr.ocr_pdf(file_path)
-            
+
             return text.strip()
         except Exception as e:
             print(f"[Parser] PDF error: {e}")
@@ -324,15 +329,20 @@ class RAG:
     def _split_text(self, text: str, chunk_size: int) -> List[str]:
         overlap = getattr(config, 'RAG_CHUNK_OVERLAP', 100)
         text = text.strip()
-        
+
         if len(text) < 50:
             return [text] if len(text) > 20 else []
-        
-        sentences = re.split(r'(?<=[.!?])\s+', text)
+
+        # Improved sentence splitting for multiple languages (including French)
+        # Handles ., !, ?, and French-specific punctuation like « » and ellipsis
+        sentences = re.split(r'(?<=[.!?…])\s+|(?<=\n\n)', text)
         chunks, current_chunk, current_length = [], [], 0
-        
+
         for sentence in sentences:
             words = sentence.split()
+            if not words:
+                continue
+
             if current_length + len(words) <= chunk_size:
                 current_chunk.extend(words)
                 current_length += len(words)
@@ -344,10 +354,21 @@ class RAG:
                 else:
                     current_chunk = words
                 current_length = len(current_chunk)
-        
-        if current_chunk and len(current_chunk) >= 20:
+
+        # Lower minimum chunk size from 20 to 10 words for better granularity
+        if current_chunk and len(current_chunk) >= 10:
             chunks.append(" ".join(current_chunk))
-        
+
+        # If we only got 1 chunk and the text is long, force split it
+        if len(chunks) <= 1 and len(text.split()) > chunk_size:
+            print(f"[Parser] Force splitting long text into smaller chunks")
+            all_words = text.split()
+            chunks = []
+            for i in range(0, len(all_words), chunk_size - overlap):
+                chunk_words = all_words[i:i + chunk_size]
+                if len(chunk_words) >= 10:
+                    chunks.append(" ".join(chunk_words))
+
         return chunks
     
     def _build_index(self, log):
@@ -413,21 +434,20 @@ class RAG:
         if not self.documents:
             self.last_sources = []
             return "", []
-        
+
         top_k = top_k or config.RAG_TOP_K
         min_score = getattr(config, 'RAG_MIN_SCORE', 0.25)
         results = []
-        
+
         if self.embeddings is not None and self.embedding_model.model:
             query_emb = self.embedding_model.encode([query], is_query=True)[0]
             similarities = np.dot(self.embeddings, query_emb)
-            top_indices = np.argsort(similarities)[-top_k * 2:][::-1]
-            
+            top_indices = np.argsort(similarities)[-top_k * 3:][::-1]
+
             for idx in top_indices:
                 score = float(similarities[idx])
                 if score >= min_score:
                     results.append((self.documents[idx], score))
-            results = results[:top_k]
         else:
             query_words = set(query.lower().split())
             scored = []
@@ -438,15 +458,36 @@ class RAG:
                 if score > 0:
                     scored.append((doc, score))
             scored.sort(key=lambda x: x[1], reverse=True)
-            results = scored[:top_k]
-        
+            results = scored[:top_k * 2]
+
         if not results:
             self.last_sources = []
             return "", []
-        
+
+        # Deduplicate and prioritize by source diversity
+        # Prefer showing results from different documents when possible
+        seen_sources = {}
+        filtered_results = []
+
+        for doc, score in results:
+            source = doc["source"]
+            if source not in seen_sources:
+                # First chunk from this source
+                seen_sources[source] = score
+                filtered_results.append((doc, score))
+            elif score > seen_sources[source] + 0.1:
+                # Only include another chunk if significantly better
+                filtered_results.append((doc, score))
+                seen_sources[source] = max(seen_sources[source], score)
+
+            if len(filtered_results) >= top_k:
+                break
+
+        results = filtered_results[:top_k]
+
         self.last_sources = []
         context_parts = []
-        
+
         for i, (doc, score) in enumerate(results, 1):
             self.last_sources.append({
                 "index": i,
@@ -456,7 +497,7 @@ class RAG:
                 "preview": doc["content"][:200] + "..." if len(doc["content"]) > 200 else doc["content"]
             })
             context_parts.append(f"[Document {i} - {doc['source']}]\n{doc['content']}")
-        
+
         return "\n\n".join(context_parts), self.last_sources
     
     def format_sources_for_display(self) -> str:
