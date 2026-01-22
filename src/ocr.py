@@ -8,7 +8,6 @@ import glob
 import shutil
 from typing import Optional, Callable
 
-# OCR dependencies
 try:
     import pytesseract
     from PIL import Image
@@ -34,13 +33,11 @@ class OCRProcessor:
         self._configure_poppler()
     
     def _configure_tesseract(self):
-        """Configure Tesseract path for PyInstaller on Windows."""
         if not HAS_OCR:
             print("[OCR] pytesseract not installed")
             return
         
         if sys.platform == 'win32':
-            # Try bundled path first
             if hasattr(sys, '_MEIPASS'):
                 tesseract_path = os.path.join(sys._MEIPASS, 'tesseract', 'tesseract.exe')
                 if os.path.exists(tesseract_path):
@@ -48,7 +45,6 @@ class OCRProcessor:
                     print(f"[OCR] Using bundled Tesseract: {tesseract_path}")
                     return
             
-            # Try standard Windows installation paths
             standard_paths = [
                 r"C:\Program Files\Tesseract-OCR\tesseract.exe",
                 r"C:\Program Files (x86)\Tesseract-OCR\tesseract.exe",
@@ -63,7 +59,6 @@ class OCRProcessor:
             else:
                 print("[OCR] Warning: Tesseract not found in standard paths")
         
-        # Verify Tesseract is accessible
         try:
             version = pytesseract.get_tesseract_version()
             print(f"[OCR] Tesseract version: {version}")
@@ -72,20 +67,17 @@ class OCRProcessor:
             self.available = False
     
     def _configure_poppler(self):
-        """Configure Poppler path for pdf2image on Windows."""
         if not HAS_PDF2IMAGE:
             print("[OCR] pdf2image not installed")
             return
         
         if sys.platform == 'win32':
-            # Common Poppler installation paths on Windows
             poppler_search_paths = [
                 r"C:\Program Files\poppler-*\Library\bin",
                 r"C:\Program Files\poppler\Library\bin",
                 r"C:\Program Files (x86)\poppler-*\Library\bin",
                 r"C:\ProgramData\chocolatey\lib\poppler\tools\Library\bin",
                 r"C:\ProgramData\chocolatey\bin",
-                os.path.join(os.environ.get('LOCALAPPDATA', ''), 'poppler-*', 'Library', 'bin'),
             ]
             
             for pattern in poppler_search_paths:
@@ -101,21 +93,17 @@ class OCRProcessor:
                     print(f"[OCR] Using Poppler: {self.poppler_path}")
                     return
             
-            # Check if pdftoppm is in PATH
             if shutil.which('pdftoppm'):
                 print("[OCR] Poppler found in PATH")
-                self.poppler_path = None
             else:
-                print("[OCR] Warning: Poppler not found, PDF OCR may not work")
+                print("[OCR] Warning: Poppler not found")
         else:
-            # macOS/Linux
             if shutil.which('pdftoppm'):
                 print("[OCR] Poppler available in PATH")
             else:
-                print("[OCR] Warning: Poppler (pdftoppm) not found in PATH")
+                print("[OCR] Warning: Poppler not found in PATH")
     
     def get_status(self) -> dict:
-        """Returns OCR availability status."""
         status = {
             "ocr_available": self.available,
             "pdf_ocr_available": self.available and self.pdf_support,
@@ -126,14 +114,12 @@ class OCRProcessor:
                 langs = pytesseract.get_languages()
                 status["available_languages"] = langs
                 print(f"[OCR] Available languages: {langs}")
-            except Exception as e:
-                print(f"[OCR] Could not get languages: {e}")
+            except Exception:
                 status["available_languages"] = []
         
         return status
     
     def _get_best_language(self, preferred: str = 'eng') -> str:
-        """Get the best available language for OCR."""
         if not self.available:
             return 'eng'
         
@@ -146,19 +132,15 @@ class OCRProcessor:
             
             if valid_langs:
                 return '+'.join(valid_langs)
-            
             if 'eng' in available_langs:
                 return 'eng'
-            
             if available_langs:
                 return available_langs[0]
-            
             return 'eng'
         except Exception:
             return 'eng'
     
     def ocr_image(self, image_path: str, lang: str = 'eng') -> str:
-        """Extract text from an image using OCR."""
         if not self.available:
             print("[OCR] OCR not available")
             return ""
@@ -175,24 +157,22 @@ class OCRProcessor:
             try:
                 text = pytesseract.image_to_string(image, lang=use_lang)
             except pytesseract.TesseractError as e:
-                print(f"[OCR] Language error with '{use_lang}': {e}")
+                print(f"[OCR] Language error: {e}")
                 try:
                     text = pytesseract.image_to_string(image)
-                except Exception as e2:
-                    print(f"[OCR] Fallback also failed: {e2}")
+                except:
                     return ""
             
             result = text.strip()
-            print(f"[OCR] Extracted {len(result)} characters from image")
+            print(f"[OCR] Extracted {len(result)} characters")
             return result
         except Exception as e:
-            print(f"[OCR] Error processing image {image_path}: {e}")
+            print(f"[OCR] Error: {e}")
             import traceback
             traceback.print_exc()
             return ""
     
     def ocr_image_from_bytes(self, image_bytes: bytes, lang: str = 'eng') -> str:
-        """Extract text from image bytes using OCR."""
         if not self.available:
             return ""
         
@@ -207,7 +187,7 @@ class OCRProcessor:
             
             try:
                 text = pytesseract.image_to_string(image, lang=use_lang)
-            except pytesseract.TesseractError:
+            except:
                 try:
                     text = pytesseract.image_to_string(image)
                 except:
@@ -215,12 +195,11 @@ class OCRProcessor:
             
             return text.strip()
         except Exception as e:
-            print(f"[OCR] Error processing image bytes: {e}")
+            print(f"[OCR] Error: {e}")
             return ""
     
-    def ocr_pdf(self, pdf_path: str, lang: str = 'eng', 
-                dpi: int = 300, on_progress: Optional[Callable[[str], None]] = None) -> str:
-        """Extract text from a scanned PDF using OCR."""
+    def ocr_pdf(self, pdf_path: str, lang: str = 'eng', dpi: int = 300,
+                on_progress: Optional[Callable[[str], None]] = None) -> str:
         if not self.available:
             print("[OCR] OCR not available")
             return ""
@@ -238,10 +217,8 @@ class OCRProcessor:
             log(f"Converting PDF to images (dpi={dpi})...")
             
             convert_kwargs = {'dpi': dpi}
-            
             if sys.platform == 'win32' and self.poppler_path:
                 convert_kwargs['poppler_path'] = self.poppler_path
-                log(f"Using Poppler path: {self.poppler_path}")
             
             try:
                 images = convert_from_path(pdf_path, **convert_kwargs)
@@ -252,8 +229,7 @@ class OCRProcessor:
                     convert_kwargs['dpi'] = 150
                     try:
                         images = convert_from_path(pdf_path, **convert_kwargs)
-                    except Exception as e2:
-                        log(f"Retry failed: {e2}")
+                    except:
                         return ""
                 else:
                     return ""
@@ -264,7 +240,7 @@ class OCRProcessor:
             
             all_text = []
             total_pages = len(images)
-            log(f"Extracted {total_pages} page(s) from PDF")
+            log(f"Extracted {total_pages} page(s)")
             
             use_lang = self._get_best_language(lang)
             log(f"Using language: {use_lang}")
@@ -277,7 +253,7 @@ class OCRProcessor:
                 
                 try:
                     text = pytesseract.image_to_string(image, lang=use_lang)
-                except pytesseract.TesseractError:
+                except:
                     try:
                         text = pytesseract.image_to_string(image)
                     except:
@@ -289,19 +265,17 @@ class OCRProcessor:
             log(f"OCR complete: {len(all_text)} pages with text")
             return "\n\n".join(all_text)
         except Exception as e:
-            log(f"Error processing PDF: {e}")
+            log(f"Error: {e}")
             import traceback
             traceback.print_exc()
             return ""
     
     def ocr_pptx_images(self, pptx_path: str, lang: str = 'eng') -> str:
-        """Extract text from images embedded in PowerPoint."""
         if not self.available:
             return ""
         
         try:
             from pptx import Presentation
-            
             prs = Presentation(pptx_path)
             ocr_texts = []
             
@@ -309,29 +283,25 @@ class OCRProcessor:
                 for shape in slide.shapes:
                     if hasattr(shape, "image"):
                         try:
-                            image_bytes = shape.image.blob
-                            text = self.ocr_image_from_bytes(image_bytes, lang)
+                            text = self.ocr_image_from_bytes(shape.image.blob, lang)
                             if text:
                                 ocr_texts.append(f"[Slide {slide_num} - Image]\n{text}")
                         except Exception as e:
-                            print(f"[OCR] Error with image on slide {slide_num}: {e}")
+                            print(f"[OCR] Error slide {slide_num}: {e}")
             
             return "\n\n".join(ocr_texts)
         except ImportError:
-            print("[OCR] python-pptx not available")
             return ""
         except Exception as e:
-            print(f"[OCR] Error processing PPTX images: {e}")
+            print(f"[OCR] PPTX error: {e}")
             return ""
     
     def ocr_docx_images(self, docx_path: str, lang: str = 'eng') -> str:
-        """Extract text from images embedded in Word documents."""
         if not self.available:
             return ""
         
         try:
             from docx import Document
-            
             doc = Document(docx_path)
             ocr_texts = []
             image_count = 0
@@ -339,24 +309,16 @@ class OCRProcessor:
             for rel in doc.part.rels.values():
                 if "image" in rel.target_ref:
                     try:
-                        image_bytes = rel.target_part.blob
-                        text = self.ocr_image_from_bytes(image_bytes, lang)
+                        text = self.ocr_image_from_bytes(rel.target_part.blob, lang)
                         if text:
                             image_count += 1
                             ocr_texts.append(f"[Image {image_count}]\n{text}")
                     except Exception as e:
-                        print(f"[OCR] Error with image in DOCX: {e}")
+                        print(f"[OCR] DOCX image error: {e}")
             
             return "\n\n".join(ocr_texts)
         except ImportError:
-            print("[OCR] python-docx not available")
             return ""
         except Exception as e:
-            print(f"[OCR] Error processing DOCX images: {e}")
+            print(f"[OCR] DOCX error: {e}")
             return ""
-
-
-def is_ocr_available() -> bool:
-    """Quick check if OCR is available."""
-    processor = OCRProcessor()
-    return processor.available
