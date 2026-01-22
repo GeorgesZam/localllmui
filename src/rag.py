@@ -1,16 +1,17 @@
 """
-RAG system with document parsing and embeddings.
+RAG system - Optimized with lazy loading and caching.
 """
 
 import os
 import json
 import re
 import shutil
+import hashlib
 import numpy as np
 from typing import Optional, Callable, List, Tuple
 
 import config
-from utils import get_resource_path, get_writable_path
+from utils import get_resource_path, get_writable_path, get_file_hash
 from ocr import OCRProcessor
 
 try:
@@ -39,10 +40,24 @@ except ImportError:
 
 
 class EmbeddingModel:
+    """Lazy-loaded embedding model for memory efficiency."""
+    
     def __init__(self):
-        self.model = None
+        self._model = None
+        self._loaded = False
+    
+    @property
+    def model(self):
+        return self._model
+    
+    @property
+    def is_loaded(self) -> bool:
+        return self._loaded
     
     def load(self, on_progress: Optional[Callable[[str], None]] = None) -> bool:
+        if self._loaded:
+            return True
+        
         def log(msg):
             print(f"[Embedding] {msg}")
             if on_progress:
@@ -54,7 +69,8 @@ class EmbeddingModel:
             
             if os.path.exists(bundled_path):
                 log(f"Loading: {bundled_path}")
-                self.model = SentenceTransformer(bundled_path)
+                self._model = SentenceTransformer(bundled_path)
+                self._loaded = True
                 log("Embedding model loaded!")
                 return True
             else:
@@ -65,16 +81,31 @@ class EmbeddingModel:
             return False
     
     def encode(self, texts: List[str], is_query: bool = False) -> np.ndarray:
-        if self.model is None:
+        if self._model is None:
             return np.array([])
         
         if is_query:
             texts = [f"Represent this sentence for searching relevant passages: {t}" for t in texts]
         
-        return self.model.encode(texts, normalize_embeddings=True, show_progress_bar=False)
+        batch_size = getattr(config, 'BATCH_SIZE', 512)
+        return self._model.encode(
+            texts, 
+            normalize_embeddings=True, 
+            show_progress_bar=False,
+            batch_size=batch_size
+        )
+    
+    def unload(self):
+        """Free memory by unloading model."""
+        self._model = None
+        self._loaded = False
+        import gc
+        gc.collect()
 
 
 class DocumentParser:
+    """Optimized document parser with format detection."""
+    
     SUPPORTED_EXTENSIONS = (
         '.txt', '.md', '.pdf', '.xlsx', '.xls', '.pptx', '.ppt', '.csv',
         '.docx', '.doc', '.py', '.js', '.ts', '.jsx', '.tsx', '.java',
@@ -83,14 +114,15 @@ class DocumentParser:
         '.png', '.jpg', '.jpeg', '.tiff', '.bmp',
     )
     
+    TEXT_EXTENSIONS = (
+        '.txt', '.md', '.py', '.js', '.ts', '.jsx', '.tsx', '.java',
+        '.c', '.cpp', '.h', '.hpp', '.cs', '.go', '.rs', '.rb', '.php',
+        '.json', '.xml', '.yaml', '.yml', '.html', '.htm', '.css', '.csv',
+    )
+    
     def __init__(self, ocr_processor: OCRProcessor):
         self.ocr = ocr_processor
-    
-    def parse(self, file_path: str) -> str:
-        ext = os.path.splitext(file_path)[1].lower()
-        print(f"[Parser] Reading: {file_path} ({ext})")
-        
-        parsers = {
+        self._parsers = {
             '.pdf': self._parse_pdf,
             '.docx': self._parse_docx, '.doc': self._parse_docx,
             '.xlsx': self._parse_excel, '.xls': self._parse_excel,
@@ -99,61 +131,46 @@ class DocumentParser:
             '.jpeg': self._parse_image, '.tiff': self._parse_image,
             '.bmp': self._parse_image,
         }
+    
+    def parse(self, file_path: str) -> str:
+        ext = os.path.splitext(file_path)[1].lower()
+        print(f"[Parser] Reading: {os.path.basename(file_path)} ({ext})")
         
-        return parsers.get(ext, self._parse_text)(file_path)
+        parser = self._parsers.get(ext, self._parse_text)
+        return parser(file_path)
     
     def _parse_pdf(self, file_path: str) -> str:
         if not HAS_PDF:
-            print("[Parser] PyPDF2 not available")
             return ""
         
         try:
             text_parts = []
             scanned_pages = []
             
-            print(f"[Parser] Opening PDF: {file_path}")
-            
             with open(file_path, 'rb') as f:
                 reader = PyPDF2.PdfReader(f)
                 total_pages = len(reader.pages)
-                print(f"[Parser] PDF has {total_pages} pages")
                 
                 for page_num, page in enumerate(reader.pages):
                     try:
                         page_text = (page.extract_text() or "").strip()
-                        print(f"[Parser] Page {page_num + 1}: {len(page_text)} chars")
                         
                         if len(page_text) > 50:
                             text_parts.append(f"=== Page {page_num + 1} ===\n{page_text}")
                         else:
                             scanned_pages.append(page_num + 1)
-                            print(f"[Parser] Page {page_num + 1} appears scanned")
-                    except Exception as e:
-                        print(f"[Parser] Error page {page_num + 1}: {e}")
+                    except Exception:
                         scanned_pages.append(page_num + 1)
             
             text = "\n\n".join(text_parts)
-            print(f"[Parser] Extracted {len(text)} chars from {len(text_parts)} pages")
             
-            # OCR for scanned pages
-            if scanned_pages and self.ocr.available and self.ocr.pdf_support:
-                print(f"[Parser] Running OCR on {len(scanned_pages)} scanned pages...")
-                ocr_text = self.ocr.ocr_pdf(file_path)
-                if ocr_text:
-                    print(f"[Parser] OCR extracted {len(ocr_text)} chars")
-                    text = f"{text}\n\n=== OCR Content ===\n{ocr_text}" if text else ocr_text
-            
-            # Full OCR if no text
-            if not text.strip() and total_pages > 0:
-                print("[Parser] No text, attempting full OCR...")
-                if self.ocr.available and self.ocr.pdf_support:
-                    text = self.ocr.ocr_pdf(file_path)
+            # OCR only if needed and available
+            if not text.strip() and scanned_pages and self.ocr.available and self.ocr.pdf_support:
+                text = self.ocr.ocr_pdf(file_path, dpi=200)  # Lower DPI for speed
             
             return text.strip()
         except Exception as e:
             print(f"[Parser] PDF error: {e}")
-            import traceback
-            traceback.print_exc()
             return ""
     
     def _parse_docx(self, file_path: str) -> str:
@@ -170,14 +187,7 @@ class DocumentParser:
                     if row_text:
                         text_parts.append(row_text)
             
-            text = "\n".join(text_parts)
-            
-            if self.ocr.available:
-                ocr_text = self.ocr.ocr_docx_images(file_path)
-                if ocr_text:
-                    text += f"\n\n=== Image Content (OCR) ===\n{ocr_text}"
-            
-            return text
+            return "\n".join(text_parts)
         except Exception as e:
             print(f"[Parser] DOCX error: {e}")
             return ""
@@ -188,7 +198,7 @@ class DocumentParser:
         
         try:
             text_parts = []
-            wb = openpyxl.load_workbook(file_path, data_only=True)
+            wb = openpyxl.load_workbook(file_path, data_only=True, read_only=True)
             
             for sheet_name in wb.sheetnames:
                 sheet = wb[sheet_name]
@@ -218,21 +228,13 @@ class DocumentParser:
                 if slide_text:
                     text_parts.append(f"=== Slide {i} ===\n" + "\n".join(slide_text))
             
-            text = "\n\n".join(text_parts)
-            
-            if self.ocr.available:
-                ocr_text = self.ocr.ocr_pptx_images(file_path)
-                if ocr_text:
-                    text += f"\n\n=== Image Content (OCR) ===\n{ocr_text}"
-            
-            return text
+            return "\n\n".join(text_parts)
         except Exception as e:
             print(f"[Parser] PPTX error: {e}")
             return ""
     
     def _parse_image(self, file_path: str) -> str:
         if not self.ocr.available:
-            print(f"[Parser] OCR not available for: {file_path}")
             return ""
         return self.ocr.ocr_image(file_path)
     
@@ -243,25 +245,41 @@ class DocumentParser:
                     return f.read()
             except UnicodeDecodeError:
                 continue
-            except Exception as e:
-                print(f"[Parser] Error: {e}")
+            except Exception:
                 return ""
         return ""
 
 
 class RAG:
+    """Optimized RAG with caching and lazy loading."""
+    
     def __init__(self):
         self.documents = []
-        self.embeddings = None
+        self._embeddings = None
         self.embedding_model = EmbeddingModel()
         self.ocr_processor = OCRProcessor()
         self.parser = DocumentParser(self.ocr_processor)
         self.last_sources = []
+        self._index_hash = None
         
         self.index_file = get_writable_path("index.json")
         self.embeddings_file = get_writable_path("embeddings.npy")
+        self.hash_file = get_writable_path("index_hash.txt")
         self.user_docs_folder = get_writable_path("documents")
         self.bundled_data_folder = get_resource_path(config.RAG_FOLDER)
+    
+    @property
+    def embeddings(self):
+        if self._embeddings is None and os.path.exists(self.embeddings_file):
+            try:
+                self._embeddings = np.load(self.embeddings_file)
+            except Exception:
+                pass
+        return self._embeddings
+    
+    @embeddings.setter
+    def embeddings(self, value):
+        self._embeddings = value
     
     def initialize(self, on_progress: Optional[Callable[[str], None]] = None) -> bool:
         def log(msg):
@@ -273,61 +291,96 @@ class RAG:
             return True
         
         os.makedirs(self.user_docs_folder, exist_ok=True)
-        log(f"Documents folder: {self.user_docs_folder}")
         
+        # Check OCR status
         ocr_status = self.ocr_processor.get_status()
         log("✓ OCR available" if ocr_status["ocr_available"] else "⚠ OCR not available")
-        if ocr_status.get("pdf_ocr_available"):
-            log("✓ PDF OCR available")
         
+        # Load embedding model
         log("Loading embedding model...")
         if not self.embedding_model.load(on_progress):
-            log("Using keyword search")
+            log("⚠ Using keyword search (no embedding)")
         
-        if os.path.exists(self.index_file):
-            log("Loading existing index...")
+        # Check if we can use cached index
+        if self._is_cache_valid():
+            log("Loading cached index...")
             self._load_index()
-            if not self.documents:
-                self._build_index(log)
         else:
+            log("Building new index...")
             self._build_index(log)
         
         log(f"RAG ready: {len(self.documents)} chunks")
         return True
+    
+    def _compute_docs_hash(self) -> str:
+        """Compute hash of all documents for cache invalidation."""
+        hashes = []
+        
+        for folder in [self.bundled_data_folder, self.user_docs_folder]:
+            if not os.path.isdir(folder):
+                continue
+            for filename in sorted(os.listdir(folder)):
+                ext = os.path.splitext(filename)[1].lower()
+                if ext in DocumentParser.SUPPORTED_EXTENSIONS:
+                    filepath = os.path.join(folder, filename)
+                    hashes.append(get_file_hash(filepath))
+        
+        return hashlib.md5("|".join(hashes).encode()).hexdigest()
+    
+    def _is_cache_valid(self) -> bool:
+        """Check if cached index is still valid."""
+        if not config.INDEX_CACHE_ENABLED:
+            return False
+        
+        if not os.path.exists(self.index_file):
+            return False
+        
+        if not os.path.exists(self.hash_file):
+            return False
+        
+        try:
+            with open(self.hash_file, 'r') as f:
+                cached_hash = f.read().strip()
+            return cached_hash == self._compute_docs_hash()
+        except Exception:
+            return False
     
     def _load_index(self):
         try:
             with open(self.index_file, "r", encoding="utf-8") as f:
                 self.documents = json.load(f)
             
-            if os.path.exists(self.embeddings_file) and self.embedding_model.model:
-                self.embeddings = np.load(self.embeddings_file)
-            else:
-                self.embeddings = None
+            # Lazy load embeddings - only when needed
+            self._embeddings = None
         except Exception as e:
             print(f"[RAG] Load error: {e}")
             self.documents = []
-            self.embeddings = None
+            self._embeddings = None
     
     def _save_index(self, log):
         try:
             with open(self.index_file, "w", encoding="utf-8") as f:
-                json.dump(self.documents, f, ensure_ascii=False, indent=2)
+                json.dump(self.documents, f, ensure_ascii=False)
             
-            if self.embeddings is not None:
-                np.save(self.embeddings_file, self.embeddings)
+            if self._embeddings is not None:
+                np.save(self.embeddings_file, self._embeddings)
+            
+            # Save hash for cache validation
+            with open(self.hash_file, 'w') as f:
+                f.write(self._compute_docs_hash())
             
             log(f"Index saved: {len(self.documents)} chunks")
         except Exception as e:
             log(f"Save error: {e}")
     
     def _split_text(self, text: str, chunk_size: int) -> List[str]:
-        overlap = getattr(config, 'RAG_CHUNK_OVERLAP', 100)
+        overlap = getattr(config, 'RAG_CHUNK_OVERLAP', 50)
         text = text.strip()
         
         if len(text) < 50:
             return [text] if len(text) > 20 else []
         
+        # Split by sentences
         sentences = re.split(r'(?<=[.!?])\s+', text)
         chunks, current_chunk, current_length = [], [], 0
         
@@ -339,13 +392,12 @@ class RAG:
             else:
                 if current_chunk:
                     chunks.append(" ".join(current_chunk))
-                if overlap > 0 and current_chunk:
-                    current_chunk = current_chunk[-overlap:] + words
-                else:
-                    current_chunk = words
+                # Overlap
+                overlap_words = current_chunk[-overlap:] if overlap > 0 else []
+                current_chunk = overlap_words + words
                 current_length = len(current_chunk)
         
-        if current_chunk and len(current_chunk) >= 20:
+        if current_chunk and len(current_chunk) >= 15:
             chunks.append(" ".join(current_chunk))
         
         return chunks
@@ -396,15 +448,16 @@ class RAG:
         if not all_chunks:
             log("No documents found")
             self.documents = []
-            self.embeddings = None
+            self._embeddings = None
             return
         
-        if self.embedding_model.model:
+        # Encode embeddings
+        if self.embedding_model.is_loaded:
             log(f"Encoding {len(all_chunks)} chunks...")
             texts = [c["content"] for c in all_chunks]
-            self.embeddings = self.embedding_model.encode(texts, is_query=False)
+            self._embeddings = self.embedding_model.encode(texts, is_query=False)
         else:
-            self.embeddings = None
+            self._embeddings = None
         
         self.documents = all_chunks
         self._save_index(log)
@@ -415,10 +468,11 @@ class RAG:
             return "", []
         
         top_k = top_k or config.RAG_TOP_K
-        min_score = getattr(config, 'RAG_MIN_SCORE', 0.25)
+        min_score = getattr(config, 'RAG_MIN_SCORE', 0.3)
         results = []
         
-        if self.embeddings is not None and self.embedding_model.model:
+        # Semantic search if embeddings available
+        if self.embeddings is not None and self.embedding_model.is_loaded:
             query_emb = self.embedding_model.encode([query], is_query=True)[0]
             similarities = np.dot(self.embeddings, query_emb)
             top_indices = np.argsort(similarities)[-top_k * 2:][::-1]
@@ -429,11 +483,13 @@ class RAG:
                     results.append((self.documents[idx], score))
             results = results[:top_k]
         else:
+            # Fallback: keyword search
             query_words = set(query.lower().split())
             scored = []
             for doc in self.documents:
                 content_lower = doc["content"].lower()
-                matches = query_words & set(content_lower.split())
+                content_words = set(content_lower.split())
+                matches = query_words & content_words
                 score = len(matches) + sum(0.5 for w in query_words if w in content_lower)
                 if score > 0:
                     scored.append((doc, score))
@@ -466,7 +522,7 @@ class RAG:
         lines = ["", "📚 Sources:"]
         for src in self.last_sources:
             lines.append(f"  [{src['index']}] {src['source']} (score: {src['score']:.2f})")
-            preview = src['preview'][:100].replace('\n', ' ')
+            preview = src['preview'][:80].replace('\n', ' ')
             lines.append(f"      \"{preview}...\"")
         
         return "\n".join(lines)
@@ -497,10 +553,18 @@ class RAG:
             if added == 0:
                 return False
             
-            log(f"Rebuilding index...")
+            log("Rebuilding index...")
             self._build_index(log)
             
             return len(self.documents) > 0
         except Exception as e:
             log(f"Error: {e}")
             return False
+    
+    def clear_cache(self):
+        """Clear all cached data."""
+        for f in [self.index_file, self.embeddings_file, self.hash_file]:
+            if os.path.exists(f):
+                os.remove(f)
+        self.documents = []
+        self._embeddings = None
