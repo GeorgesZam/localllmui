@@ -6,11 +6,11 @@ import os
 
 # === APP ===
 APP_NAME = "Local Chat"
-WINDOW_SIZE = "900x700"
+WINDOW_SIZE = "1100x700"
 
 # === MODEL ===
 MODEL_FILE = "models/model.gguf"
-EMBEDDING_MODEL_FOLDER = "embedding_model"  # Bundled embedding model
+EMBEDDING_MODEL_FOLDER = "embedding_model"
 CONTEXT_SIZE = 4096
 MAX_TOKENS = 512
 THREADS = 8
@@ -32,28 +32,7 @@ RAG_TOP_K = 3
 RAG_MIN_SCORE = 0.25
 RAG_SHOW_SOURCES = True
 
-# === SAMPLING (steering) ===
+# === SAMPLING ===
 TEMPERATURE = 0.2
 TOP_P = 0.9
 REPEAT_PENALTY = 1.1
-
-# === UI COLORS ===
-COLORS = {
-    "bg": "#1a1a2e",
-    "bg_chat": "#16213e",
-    "fg": "#eaeaea",
-    "user": "#4a9eff",
-    "bot": "#50fa7b",
-    "system": "#888888",
-    "error": "#ff5555",
-    "accent": "#4a9eff",
-    "source": "#f1c40f",
-}
-
-# === UI FONTS ===
-FONTS = {
-    "title": ("Arial", 20, "bold"),
-    "chat": ("Consolas", 11),
-    "button": ("Arial", 11, "bold"),
-    "source": ("Consolas", 9),
-}
