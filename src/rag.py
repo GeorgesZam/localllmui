@@ -361,3 +361,257 @@ class RAG:
         if os.path.exists(self.index_file):
             log("Loading existing index...")
             self._load_index()
+            if not self.documents:
+                log("Index empty, rebuilding...")
+                self._build_index(log)
+        else:
+            log("Building index...")
+            self._build_index(log)
+        
+        log(f"RAG ready: {len(self.documents)} chunks")
+        return True
+    
+    def _load_index(self):
+        """Load pre-built index."""
+        try:
+            with open(self.index_file, "r", encoding="utf-8") as f:
+                self.documents = json.load(f)
+            
+            if os.path.exists(self.embeddings_file) and self.embedding_model.model:
+                self.embeddings = np.load(self.embeddings_file)
+            else:
+                self.embeddings = None
+                
+            print(f"[RAG] Loaded {len(self.documents)} chunks from index")
+        except Exception as e:
+            print(f"[RAG] Load error: {e}")
+            self.documents = []
+            self.embeddings = None
+    
+    def _save_index(self, log: Callable[[str], None]):
+        """Save index to disk."""
+        try:
+            with open(self.index_file, "w", encoding="utf-8") as f:
+                json.dump(self.documents, f, ensure_ascii=False, indent=2)
+            
+            if self.embeddings is not None:
+                np.save(self.embeddings_file, self.embeddings)
+            
+            log(f"Index saved: {len(self.documents)} chunks")
+        except Exception as e:
+            log(f"Save error: {e}")
+    
+    def _split_text(self, text: str, chunk_size: int) -> List[str]:
+        """Split text into overlapping chunks."""
+        overlap = getattr(config, 'RAG_CHUNK_OVERLAP', 100)
+        text = text.strip()
+        
+        if len(text) < 50:
+            return [text] if len(text) > 20 else []
+        
+        sentences = re.split(r'(?<=[.!?])\s+', text)
+        chunks = []
+        current_chunk = []
+        current_length = 0
+        
+        for sentence in sentences:
+            words = sentence.split()
+            
+            if current_length + len(words) <= chunk_size:
+                current_chunk.extend(words)
+                current_length += len(words)
+            else:
+                if current_chunk:
+                    chunks.append(" ".join(current_chunk))
+                
+                if overlap > 0 and current_chunk:
+                    overlap_words = current_chunk[-overlap:] if len(current_chunk) > overlap else current_chunk
+                    current_chunk = overlap_words + words
+                else:
+                    current_chunk = words
+                current_length = len(current_chunk)
+        
+        if current_chunk and len(current_chunk) >= 20:
+            chunks.append(" ".join(current_chunk))
+        
+        return chunks
+    
+    def _build_index(self, log: Callable[[str], None]):
+        """Build index from all documents."""
+        all_chunks = []
+        
+        folders = []
+        if os.path.exists(self.bundled_data_folder):
+            folders.append(("bundled", self.bundled_data_folder))
+        if os.path.exists(self.user_docs_folder):
+            folders.append(("user", self.user_docs_folder))
+        
+        for folder_type, folder in folders:
+            log(f"Scanning {folder_type}: {folder}")
+            
+            if not os.path.isdir(folder):
+                continue
+            
+            for filename in os.listdir(folder):
+                ext = os.path.splitext(filename)[1].lower()
+                
+                if ext not in DocumentParser.SUPPORTED_EXTENSIONS:
+                    continue
+                
+                file_path = os.path.join(folder, filename)
+                
+                try:
+                    log(f"Processing: {filename}")
+                    text = self.parser.parse(file_path)
+                    
+                    if not text or len(text.strip()) < 10:
+                        log(f"⚠ {filename}: empty or too short")
+                        continue
+                    
+                    chunks = self._split_text(text, config.RAG_CHUNK_SIZE)
+                    
+                    for i, chunk in enumerate(chunks):
+                        all_chunks.append({
+                            "source": filename,
+                            "chunk_id": i,
+                            "content": chunk
+                        })
+                    
+                    log(f"✓ {filename}: {len(chunks)} chunks ({len(text)} chars)")
+                except Exception as e:
+                    log(f"✗ {filename}: {e}")
+                    import traceback
+                    traceback.print_exc()
+        
+        if not all_chunks:
+            log("No documents found")
+            self.documents = []
+            self.embeddings = None
+            return
+        
+        # Encode if embeddings available
+        if self.embedding_model.model:
+            log(f"Encoding {len(all_chunks)} chunks...")
+            texts = [c["content"] for c in all_chunks]
+            self.embeddings = self.embedding_model.encode(texts, is_query=False)
+        else:
+            self.embeddings = None
+        
+        self.documents = all_chunks
+        self._save_index(log)
+    
+    def search(self, query: str, top_k: int = None) -> Tuple[str, List[dict]]:
+        """Search documents."""
+        if not self.documents:
+            self.last_sources = []
+            return "", []
+        
+        top_k = top_k or config.RAG_TOP_K
+        min_score = getattr(config, 'RAG_MIN_SCORE', 0.25)
+        
+        results = []
+        
+        if self.embeddings is not None and self.embedding_model.model:
+            # Semantic search
+            query_emb = self.embedding_model.encode([query], is_query=True)[0]
+            similarities = np.dot(self.embeddings, query_emb)
+            top_indices = np.argsort(similarities)[-top_k * 2:][::-1]
+            
+            for idx in top_indices:
+                score = float(similarities[idx])
+                if score >= min_score:
+                    results.append((self.documents[idx], score))
+            
+            results = results[:top_k]
+        else:
+            # Keyword search
+            query_words = set(query.lower().split())
+            scored = []
+            
+            for doc in self.documents:
+                content_lower = doc["content"].lower()
+                content_words = set(content_lower.split())
+                matches = query_words & content_words
+                score = len(matches) + sum(0.5 for w in query_words if w in content_lower)
+                
+                if score > 0:
+                    scored.append((doc, score))
+            
+            scored.sort(key=lambda x: x[1], reverse=True)
+            results = scored[:top_k]
+        
+        if not results:
+            self.last_sources = []
+            return "", []
+        
+        # Format results
+        self.last_sources = []
+        context_parts = []
+        
+        for i, (doc, score) in enumerate(results, 1):
+            self.last_sources.append({
+                "index": i,
+                "source": doc["source"],
+                "chunk_id": doc["chunk_id"],
+                "score": score,
+                "preview": doc["content"][:200] + "..." if len(doc["content"]) > 200 else doc["content"]
+            })
+            context_parts.append(f"[Document {i} - {doc['source']}]\n{doc['content']}")
+        
+        return "\n\n".join(context_parts), self.last_sources
+    
+    def get_last_sources(self) -> List[dict]:
+        """Get sources from last search."""
+        return self.last_sources
+    
+    def format_sources_for_display(self) -> str:
+        """Format sources for UI."""
+        if not self.last_sources:
+            return ""
+        
+        lines = ["", "📚 Sources:"]
+        for src in self.last_sources:
+            lines.append(f"  [{src['index']}] {src['source']} (score: {src['score']:.2f})")
+            preview = src['preview'][:100].replace('\n', ' ')
+            lines.append(f"      \"{preview}...\"")
+        
+        return "\n".join(lines)
+    
+    def add_documents(self, file_paths: list, on_progress: Optional[Callable[[str], None]] = None) -> bool:
+        """Add new documents and rebuild index."""
+        def log(msg):
+            print(f"[RAG] {msg}")
+            if on_progress:
+                on_progress(msg)
+        
+        try:
+            os.makedirs(self.user_docs_folder, exist_ok=True)
+            
+            added = 0
+            
+            for file_path in file_paths:
+                filename = os.path.basename(file_path)
+                ext = os.path.splitext(filename)[1].lower()
+                
+                if ext not in DocumentParser.SUPPORTED_EXTENSIONS:
+                    log(f"⚠ {filename}: unsupported format")
+                    continue
+                
+                dest = os.path.join(self.user_docs_folder, filename)
+                shutil.copy2(file_path, dest)
+                log(f"✓ Copied: {filename}")
+                added += 1
+            
+            if added == 0:
+                log("No valid files to add")
+                return False
+            
+            log(f"Rebuilding index with {added} new file(s)...")
+            self._build_index(log)
+            
+            return len(self.documents) > 0
+        except Exception as e:
+            log(f"Error adding documents: {e}")
+            import traceback
+            traceback.print_exc()
+            return False
