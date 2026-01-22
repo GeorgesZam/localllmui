@@ -1,5 +1,5 @@
 """
-LLM Engine - handles model loading and text generation.
+LLM Engine - Optimized for faster inference.
 """
 
 import os
@@ -17,6 +17,7 @@ class LLMEngine:
         self.rag = RAG()
         self.is_ready = False
         self.error = None
+        self._max_history = 3  # Limit history for faster context
     
     def load(self, on_progress: Optional[Callable[[str], None]] = None) -> bool:
         def log(msg):
@@ -41,8 +42,11 @@ class LLMEngine:
                 model_path=model_path,
                 n_ctx=config.CONTEXT_SIZE,
                 n_threads=config.THREADS,
-                n_gpu_layers=-1,
-                verbose=True
+                n_gpu_layers=getattr(config, 'GPU_LAYERS', -1),
+                n_batch=512,       # Batch size for prompt processing
+                use_mmap=True,     # Memory-mapped file for faster loading
+                use_mlock=False,   # Don't lock in RAM
+                verbose=False      # Reduce console spam
             )
             
             self.is_ready = True
@@ -60,17 +64,18 @@ class LLMEngine:
         if rag_context:
             system = f"""{config.SYSTEM_PROMPT}
 
-=== CONTEXT DOCUMENTS ===
+=== CONTEXT ===
 {rag_context}
-=== END CONTEXT ===
+=== END ===
 
-Answer based on the context above. If not found, say so."""
+Answer based on context. If not found, say so."""
         else:
             system = config.SYSTEM_PROMPT
         
         prompt = f"<|im_start|>system\n{system}<|im_end|>\n"
         
-        for h in self.history[-3:]:
+        # Limited history for faster processing
+        for h in self.history[-self._max_history:]:
             prompt += f"<|im_start|>user\n{h['user']}<|im_end|>\n"
             prompt += f"<|im_start|>assistant\n{h['assistant']}<|im_end|>\n"
         
@@ -88,12 +93,9 @@ Answer based on the context above. If not found, say so."""
         sources = []
         
         if config.RAG_ENABLED and self.rag.documents:
-            print(f"[LLM] Searching {len(self.rag.documents)} documents...")
             rag_context, sources = self.rag.search(message)
-            print(f"[LLM] Found {len(sources)} sources")
         
         prompt = self._build_prompt(message, rag_context)
-        print(f"[LLM] Prompt: {len(prompt)} chars")
         
         full_response = ""
         
@@ -119,9 +121,14 @@ Answer based on the context above. If not found, say so."""
             yield sources_text
             full_response += sources_text
         
+        # Save to history
         if full_response.strip():
             clean = full_response.split("📚 Sources:")[0].strip()
             self.history.append({"user": message, "assistant": clean})
+            
+            # Trim history
+            if len(self.history) > self._max_history * 2:
+                self.history = self.history[-self._max_history:]
     
     def clear_history(self):
         self.history = []
