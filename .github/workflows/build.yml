@@ -6,7 +6,6 @@ on:
   workflow_dispatch:
 
 jobs:
-  # === WINDOWS (AVX2 + OCR + CustomTkinter) ===
   build-windows:
     runs-on: windows-latest
     
@@ -16,43 +15,64 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+          cache: 'pip'  # Cache pip dependencies
+      
+      # Cache Tesseract et Poppler
+      - name: Cache Chocolatey packages
+        uses: actions/cache@v4
+        id: cache-choco
+        with:
+          path: |
+            C:\Program Files\Tesseract-OCR
+            C:\ProgramData\chocolatey\lib\poppler
+          key: choco-tesseract-poppler-${{ runner.os }}
       
       - name: Install Tesseract OCR
+        if: steps.cache-choco.outputs.cache-hit != 'true'
         run: |
           choco install tesseract --no-progress
           echo "C:\Program Files\Tesseract-OCR" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
         shell: pwsh
       
-      - name: Install Poppler (for pdf2image)
+      - name: Install Poppler
+        if: steps.cache-choco.outputs.cache-hit != 'true'
         run: choco install poppler --no-progress
         shell: pwsh
       
-      - name: Install llama-cpp-python with AVX2
-        run: pip install llama-cpp-python --prefer-binary
-        shell: bash
-      
-      - name: Install dependencies
-        run: |
-          pip install pyinstaller
-          pip install customtkinter
-          pip install sentence-transformers
-          pip install numpy
-          pip install PyPDF2
-          pip install openpyxl
-          pip install python-pptx
-          pip install python-docx
-          pip install pytesseract
-          pip install pdf2image
-          pip install Pillow
+      # Cache le modèle LLM
+      - name: Cache LLM model
+        uses: actions/cache@v4
+        id: cache-model
+        with:
+          path: models/model.gguf
+          key: qwen-2.5-0.5b-q4km-v1
       
       - name: Download LLM model
+        if: steps.cache-model.outputs.cache-hit != 'true'
         run: |
           mkdir models
           curl -L -o models/model.gguf https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/main/qwen2.5-0.5b-instruct-q4_k_m.gguf
         shell: bash
       
-      - name: Pre-download and save embedding model
+      # Cache le modèle d'embedding
+      - name: Cache embedding model
+        uses: actions/cache@v4
+        id: cache-embedding
+        with:
+          path: embedding_model
+          key: bge-small-en-v1.5-model
+      
+      - name: Pre-download embedding model
+        if: steps.cache-embedding.outputs.cache-hit != 'true'
         run: python -c "from sentence_transformers import SentenceTransformer; m = SentenceTransformer('BAAI/bge-small-en-v1.5'); m.save('embedding_model'); print('Saved')"
+        shell: bash
+      
+      # Installation groupée et optimisée
+      - name: Install dependencies
+        run: |
+          pip install --no-cache-dir pyinstaller
+          pip install --no-cache-dir llama-cpp-python --prefer-binary
+          pip install --no-cache-dir customtkinter sentence-transformers numpy PyPDF2 openpyxl python-pptx python-docx pytesseract pdf2image Pillow
         shell: bash
       
       - name: Create data folder
@@ -97,98 +117,5 @@ jobs:
           name: LocalChat-Windows
           path: src/dist/*.exe
 
-  # === MACOS (Metal GPU + OCR + CustomTkinter) ===
-  build-macos:
-    runs-on: macos-14
-    
-    steps:
-      - uses: actions/checkout@v4
-      
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-      
-      - name: Install build tools and OCR dependencies
-        run: |
-          brew install cmake
-          brew install tesseract
-          brew install poppler
-      
-      - name: Install llama-cpp-python with Metal EMBEDDED
-        env:
-          CMAKE_ARGS: "-DGGML_METAL=on -DGGML_METAL_EMBED_LIBRARY=ON"
-        run: pip install llama-cpp-python --no-cache-dir --force-reinstall --verbose
-      
-      - name: Verify Metal support
-        run: |
-          python -c "import llama_cpp; print('llama-cpp-python installed successfully')"
-          python -c "from llama_cpp import Llama; print('Llama import OK')"
-      
-      - name: Install dependencies
-        run: |
-          pip install pyinstaller
-          pip install customtkinter
-          pip install sentence-transformers
-          pip install numpy
-          pip install PyPDF2
-          pip install openpyxl
-          pip install python-pptx
-          pip install python-docx
-          pip install pytesseract
-          pip install pdf2image
-          pip install Pillow
-      
-      - name: Download LLM model
-        run: |
-          mkdir models
-          curl -L -o models/model.gguf https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/main/qwen2.5-0.5b-instruct-q4_k_m.gguf
-      
-      - name: Pre-download and save embedding model
-        run: python -c "from sentence_transformers import SentenceTransformer; m = SentenceTransformer('BAAI/bge-small-en-v1.5'); m.save('embedding_model'); print('Saved')"
-      
-      - name: Create data folder
-        run: mkdir data
-      
-      - name: Build app
-        run: |
-          LLAMA_PATH=$(python -c "import llama_cpp; import os; print(os.path.dirname(llama_cpp.__file__))")
-          ST_PATH=$(python -c "import sentence_transformers; import os; print(os.path.dirname(sentence_transformers.__file__))")
-          CTK_PATH=$(python -c "import customtkinter; import os; print(os.path.dirname(customtkinter.__file__))")
-          
-          cd src
-          pyinstaller --onefile --windowed --name "LocalChat" \
-            --add-data "../models:models" \
-            --add-data "../data:data" \
-            --add-data "../embedding_model:embedding_model" \
-            --add-data "$LLAMA_PATH:llama_cpp" \
-            --add-data "$ST_PATH:sentence_transformers" \
-            --add-data "$CTK_PATH:customtkinter" \
-            --collect-all llama_cpp \
-            --collect-binaries llama_cpp \
-            --collect-all sentence_transformers \
-            --collect-all customtkinter \
-            --collect-all transformers \
-            --collect-all tokenizers \
-            --hidden-import llama_cpp \
-            --hidden-import sentence_transformers \
-            --hidden-import customtkinter \
-            --hidden-import PyPDF2 \
-            --hidden-import openpyxl \
-            --hidden-import pptx \
-            --hidden-import docx \
-            --hidden-import torch \
-            --hidden-import transformers \
-            --hidden-import pytesseract \
-            --hidden-import pdf2image \
-            --hidden-import PIL \
-            main.py
-      
-      - name: Create ZIP
-        run: |
-          cd src/dist
-          zip -r ../../LocalChat-macOS.zip LocalChat.app
-      
-      - uses: actions/upload-artifact@v4
-        with:
-          name: LocalChat-macOS
-          path: LocalChat-macOS.zip
+  # Supprime complètement le job macOS si tu ne l'utilises pas
+  # build-macos: ...
