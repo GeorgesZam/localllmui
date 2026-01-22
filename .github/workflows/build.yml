@@ -15,7 +15,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-          cache: 'pip'  # Cache pip dependencies
+          # Pas de cache pip sans requirements.txt
       
       # Cache Tesseract et Poppler
       - name: Cache Chocolatey packages
@@ -25,13 +25,16 @@ jobs:
           path: |
             C:\Program Files\Tesseract-OCR
             C:\ProgramData\chocolatey\lib\poppler
-          key: choco-tesseract-poppler-${{ runner.os }}
+          key: choco-tesseract-poppler-v1
       
       - name: Install Tesseract OCR
         if: steps.cache-choco.outputs.cache-hit != 'true'
         run: |
           choco install tesseract --no-progress
-          echo "C:\Program Files\Tesseract-OCR" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+        shell: pwsh
+      
+      - name: Add Tesseract to PATH
+        run: echo "C:\Program Files\Tesseract-OCR" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
         shell: pwsh
       
       - name: Install Poppler
@@ -60,19 +63,26 @@ jobs:
         id: cache-embedding
         with:
           path: embedding_model
-          key: bge-small-en-v1.5-model
+          key: bge-small-en-v1.5-v1
       
       - name: Pre-download embedding model
         if: steps.cache-embedding.outputs.cache-hit != 'true'
         run: python -c "from sentence_transformers import SentenceTransformer; m = SentenceTransformer('BAAI/bge-small-en-v1.5'); m.save('embedding_model'); print('Saved')"
         shell: bash
       
-      # Installation groupée et optimisée
+      # Cache les packages Python
+      - name: Cache Python packages
+        uses: actions/cache@v4
+        id: cache-python
+        with:
+          path: ~\AppData\Local\pip\Cache
+          key: pip-${{ runner.os }}-${{ hashFiles('**/workflow.yml') }}
+      
+      # Installation groupée
       - name: Install dependencies
         run: |
-          pip install --no-cache-dir pyinstaller
-          pip install --no-cache-dir llama-cpp-python --prefer-binary
-          pip install --no-cache-dir customtkinter sentence-transformers numpy PyPDF2 openpyxl python-pptx python-docx pytesseract pdf2image Pillow
+          pip install pyinstaller llama-cpp-python --prefer-binary
+          pip install customtkinter sentence-transformers numpy PyPDF2 openpyxl python-pptx python-docx pytesseract pdf2image Pillow
         shell: bash
       
       - name: Create data folder
@@ -116,6 +126,3 @@ jobs:
         with:
           name: LocalChat-Windows
           path: src/dist/*.exe
-
-  # Supprime complètement le job macOS si tu ne l'utilises pas
-  # build-macos: ...
