@@ -51,7 +51,7 @@ jobs:
       - name: Download LLM model
         if: steps.cache-model.outputs.cache-hit != 'true'
         run: |
-          mkdir models
+          mkdir -p models
           curl -L -o models/model.gguf https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/main/qwen2.5-0.5b-instruct-q4_k_m.gguf
         shell: bash
       
@@ -61,43 +61,201 @@ jobs:
         id: cache-python
         with:
           path: ~\AppData\Local\pip\Cache
-          key: pip-${{ runner.os }}-python311-v2
+          key: pip-${{ runner.os }}-python311-v3
       
-      # Install ALL dependencies including requests
-      - name: Install dependencies
+      # Install dependencies - ORDER MATTERS!
+      - name: Install Python dependencies
         run: |
-          pip install --upgrade pip
-          pip install requests
-          pip install pyinstaller llama-cpp-python --prefer-binary
-          pip install customtkinter sentence-transformers numpy PyPDF2 openpyxl python-pptx python-docx pytesseract pdf2image Pillow
+          python -m pip install --upgrade pip
+          
+          # Core dependencies first
+          pip install requests urllib3 certifi charset-normalizer idna
+          
+          # ML dependencies
+          pip install numpy
+          pip install torch --index-url https://download.pytorch.org/whl/cpu
+          pip install transformers tokenizers huggingface_hub safetensors
+          pip install sentence-transformers
+          
+          # App dependencies
+          pip install llama-cpp-python --prefer-binary
+          pip install customtkinter
+          pip install PyPDF2 openpyxl python-pptx python-docx
+          pip install pytesseract pdf2image Pillow
+          
+          # Build tool
+          pip install pyinstaller
         shell: bash
       
-      # Cache le modèle d'embedding (APRÈS installation de sentence-transformers)
+      # Cache le modèle d'embedding
       - name: Cache embedding model
         uses: actions/cache@v4
         id: cache-embedding
         with:
           path: embedding_model
-          key: bge-small-en-v1.5-v1
+          key: bge-small-en-v1.5-v2
       
-      - name: Pre-download embedding model
+      - name: Download embedding model
         if: steps.cache-embedding.outputs.cache-hit != 'true'
-        run: python -c "from sentence_transformers import SentenceTransformer; m = SentenceTransformer('BAAI/bge-small-en-v1.5'); m.save('embedding_model'); print('Saved')"
+        run: |
+          python -c "
+          from sentence_transformers import SentenceTransformer
+          import os
+          print('Downloading BAAI/bge-small-en-v1.5...')
+          model = SentenceTransformer('BAAI/bge-small-en-v1.5')
+          model.save('embedding_model')
+          print('Model saved to embedding_model/')
+          print('Files:', os.listdir('embedding_model'))
+          "
         shell: bash
       
-      - name: Create data folder
-        run: mkdir data
-      
-      - name: Get package paths and Build
+      - name: Verify embedding model
         run: |
-          # Get paths using Python
+          python -c "
+          import os
+          path = 'embedding_model'
+          if os.path.exists(path):
+              files = os.listdir(path)
+              print(f'Embedding model files: {files}')
+              has_weights = any(f.endswith(('.bin', '.safetensors')) for f in files)
+              has_config = 'config.json' in files
+              print(f'Has weights: {has_weights}')
+              print(f'Has config: {has_config}')
+              if not (has_weights or has_config):
+                  raise Exception('Invalid embedding model!')
+          else:
+              raise Exception('Embedding model folder not found!')
+          "
+        shell: bash
+      
+      # ========================================
+      # RUN DIAGNOSTIC TESTS
+      # ========================================
+      - name: Run diagnostic tests
+        run: |
+          python -c "
+          import sys
+          import os
+          
+          print('=' * 60)
+          print('DIAGNOSTIC TESTS')
+          print('=' * 60)
+          
+          # Test 1: Imports
+          print('\n[TEST 1] Imports')
+          imports_ok = True
+          
+          try:
+              import numpy as np
+              print(f'  numpy: OK ({np.__version__})')
+          except Exception as e:
+              print(f'  numpy: FAIL ({e})')
+              imports_ok = False
+          
+          try:
+              from sentence_transformers import SentenceTransformer
+              print('  sentence_transformers: OK')
+          except Exception as e:
+              print(f'  sentence_transformers: FAIL ({e})')
+              imports_ok = False
+          
+          try:
+              from llama_cpp import Llama
+              print('  llama_cpp: OK')
+          except Exception as e:
+              print(f'  llama_cpp: FAIL ({e})')
+              imports_ok = False
+          
+          try:
+              import customtkinter
+              print(f'  customtkinter: OK ({customtkinter.__version__})')
+          except Exception as e:
+              print(f'  customtkinter: FAIL ({e})')
+              imports_ok = False
+          
+          # Test 2: Model paths
+          print('\n[TEST 2] Model Paths')
+          
+          llm_path = 'models/model.gguf'
+          if os.path.exists(llm_path):
+              size = os.path.getsize(llm_path) / (1024*1024)
+              print(f'  LLM model: OK ({size:.1f} MB)')
+          else:
+              print(f'  LLM model: FAIL (not found)')
+              imports_ok = False
+          
+          emb_path = 'embedding_model'
+          if os.path.exists(emb_path):
+              files = os.listdir(emb_path)
+              has_model = any(f.endswith(('.bin', '.safetensors')) for f in files)
+              print(f'  Embedding model: OK ({len(files)} files, has_weights={has_model})')
+          else:
+              print(f'  Embedding model: FAIL (not found)')
+              imports_ok = False
+          
+          # Test 3: Load embedding model
+          print('\n[TEST 3] Load Embedding Model')
+          try:
+              from sentence_transformers import SentenceTransformer
+              model = SentenceTransformer('embedding_model')
+              print('  Load: OK')
+              
+              # Test encoding
+              import numpy as np
+              emb = model.encode(['test'], normalize_embeddings=True)
+              print(f'  Encode: OK (shape={emb.shape})')
+              
+              # Test similarity
+              docs = ['Georges is an engineer', 'The weather is nice', 'Python programming']
+              query = 'Who is Georges?'
+              
+              doc_emb = model.encode(docs, normalize_embeddings=True)
+              q_emb = model.encode([query], normalize_embeddings=True)[0]
+              sims = np.dot(doc_emb, q_emb)
+              
+              print(f'  Similarity test:')
+              for i, (doc, sim) in enumerate(zip(docs, sims)):
+                  print(f'    [{sim:.3f}] {doc}')
+              
+              best = np.argmax(sims)
+              if 'Georges' in docs[best]:
+                  print('  Semantic search: OK (correct doc found)')
+              else:
+                  print('  Semantic search: WARNING (unexpected result)')
+                  
+          except Exception as e:
+              print(f'  Load: FAIL ({e})')
+              import traceback
+              traceback.print_exc()
+              imports_ok = False
+          
+          print('\n' + '=' * 60)
+          if imports_ok:
+              print('ALL TESTS PASSED')
+          else:
+              print('SOME TESTS FAILED')
+              sys.exit(1)
+          print('=' * 60)
+          "
+        shell: bash
+      
+      # Create data folder
+      - name: Create data folder
+        run: mkdir -p data
+        shell: bash
+      
+      # Build
+      - name: Build with PyInstaller
+        run: |
+          # Get paths
           $llamaPath = (python -c "import llama_cpp; import os; print(os.path.dirname(llama_cpp.__file__))").Trim()
           $stPath = (python -c "import sentence_transformers; import os; print(os.path.dirname(sentence_transformers.__file__))").Trim()
           $ctkPath = (python -c "import customtkinter; import os; print(os.path.dirname(customtkinter.__file__))").Trim()
           
-          Write-Host "llama_cpp path: $llamaPath"
-          Write-Host "sentence_transformers path: $stPath"
-          Write-Host "customtkinter path: $ctkPath"
+          Write-Host "Paths:"
+          Write-Host "  llama_cpp: $llamaPath"
+          Write-Host "  sentence_transformers: $stPath"
+          Write-Host "  customtkinter: $ctkPath"
           
           cd src
           
@@ -114,6 +272,7 @@ jobs:
             --collect-all transformers `
             --collect-all tokenizers `
             --collect-all huggingface_hub `
+            --collect-all safetensors `
             --hidden-import llama_cpp `
             --hidden-import sentence_transformers `
             --hidden-import customtkinter `
@@ -123,12 +282,32 @@ jobs:
             --hidden-import docx `
             --hidden-import torch `
             --hidden-import transformers `
+            --hidden-import tokenizers `
+            --hidden-import safetensors `
+            --hidden-import huggingface_hub `
             --hidden-import pytesseract `
             --hidden-import pdf2image `
             --hidden-import PIL `
             --hidden-import requests `
-            --hidden-import huggingface_hub `
+            --hidden-import numpy `
+            --hidden-import tqdm `
+            --hidden-import regex `
+            --hidden-import filelock `
+            --hidden-import packaging `
+            --hidden-import yaml `
+            --hidden-import scipy `
             main.py
+        shell: pwsh
+      
+      - name: Verify build
+        run: |
+          if (Test-Path "src/dist/LocalChat.exe") {
+            $size = (Get-Item "src/dist/LocalChat.exe").Length / 1MB
+            Write-Host "Build successful! Size: $([math]::Round($size, 2)) MB"
+          } else {
+            Write-Host "Build failed - exe not found"
+            exit 1
+          }
         shell: pwsh
       
       - uses: actions/upload-artifact@v4
