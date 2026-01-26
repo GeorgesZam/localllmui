@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Local Chat - All-in-one optimized version.
+Local Chat - Debug Version with Enhanced Logging
 Privacy-focused AI document assistant that runs entirely offline.
 """
 
@@ -30,6 +30,18 @@ from tkinter import filedialog, messagebox
 import threading
 
 # ============================================================================
+# DEBUG CONFIGURATION
+# ============================================================================
+
+DEBUG = True  # Set to False to disable verbose logging
+
+def debug_log(component: str, msg: str):
+    """Centralized debug logging."""
+    if DEBUG:
+        timestamp = datetime.now().strftime("%H:%M:%S.%f")[:-3]
+        print(f"[{timestamp}] [{component}] {msg}")
+
+# ============================================================================
 # CONFIGURATION
 # ============================================================================
 
@@ -37,7 +49,7 @@ class Config:
     """Application configuration."""
     
     # App
-    APP_NAME = "Local Chat"
+    APP_NAME = "Local Chat (Debug)"
     WINDOW_SIZE = "1100x700"
     
     # Model
@@ -64,8 +76,8 @@ Answer in the same language as the user."""
     RAG_FOLDER = "data"
     RAG_CHUNK_SIZE = 400
     RAG_CHUNK_OVERLAP = 50
-    RAG_TOP_K = 3
-    RAG_MIN_SCORE = 0.3
+    RAG_TOP_K = 5  # Increased for better coverage on large docs
+    RAG_MIN_SCORE = 0.25  # Lowered for better recall
     RAG_SHOW_SOURCES = True
     
     # Sampling
@@ -104,6 +116,7 @@ def get_writable_path(filename: str) -> str:
         else:
             _APP_DATA_DIR = os.path.join(os.path.dirname(__file__), "..", ".localchat")
         os.makedirs(_APP_DATA_DIR, exist_ok=True)
+        debug_log("UTILS", f"App data dir: {_APP_DATA_DIR}")
     
     return os.path.join(_APP_DATA_DIR, filename)
 
@@ -125,12 +138,14 @@ try:
     HAS_OCR = True
 except ImportError:
     HAS_OCR = False
+    debug_log("OCR", "pytesseract not available")
 
 try:
     from pdf2image import convert_from_path
     HAS_PDF2IMAGE = True
 except ImportError:
     HAS_PDF2IMAGE = False
+    debug_log("OCR", "pdf2image not available")
 
 
 class OCRProcessor:
@@ -143,6 +158,7 @@ class OCRProcessor:
         self._lang_cache = None
         self._configure_tesseract()
         self._configure_poppler()
+        debug_log("OCR", f"Initialized: available={self.available}, pdf_support={self.pdf_support}")
     
     def _configure_tesseract(self):
         if not HAS_OCR:
@@ -166,8 +182,10 @@ class OCRProcessor:
                     break
         
         try:
-            pytesseract.get_tesseract_version()
-        except Exception:
+            version = pytesseract.get_tesseract_version()
+            debug_log("OCR", f"Tesseract version: {version}")
+        except Exception as e:
+            debug_log("OCR", f"Tesseract not found: {e}")
             self.available = False
     
     def _configure_poppler(self):
@@ -186,9 +204,11 @@ class OCRProcessor:
                 for match in matches:
                     if os.path.isdir(match):
                         self.poppler_path = match
+                        debug_log("OCR", f"Poppler found: {match}")
                         return
             elif os.path.isdir(pattern):
                 self.poppler_path = pattern
+                debug_log("OCR", f"Poppler found: {pattern}")
                 return
     
     def get_status(self) -> dict:
@@ -204,6 +224,7 @@ class OCRProcessor:
         if self._lang_cache is None:
             try:
                 self._lang_cache = [l for l in pytesseract.get_languages() if l != 'osd']
+                debug_log("OCR", f"Available languages: {self._lang_cache}")
             except Exception:
                 self._lang_cache = ['eng']
         
@@ -217,6 +238,8 @@ class OCRProcessor:
     def ocr_image(self, image_path: str, lang: str = 'eng') -> str:
         if not self.available:
             return ""
+        
+        debug_log("OCR", f"Processing image: {image_path}")
         
         try:
             image = Image.open(image_path)
@@ -237,9 +260,10 @@ class OCRProcessor:
             except Exception:
                 text = pytesseract.image_to_string(image)
             
+            debug_log("OCR", f"Extracted {len(text)} chars from image")
             return text.strip()
         except Exception as e:
-            print(f"[OCR] Error: {e}")
+            debug_log("OCR", f"Error: {e}")
             return ""
     
     def ocr_image_from_bytes(self, image_bytes: bytes, lang: str = 'eng') -> str:
@@ -267,7 +291,7 @@ class OCRProcessor:
             return ""
         
         def log(msg):
-            print(f"[OCR] {msg}")
+            debug_log("OCR", msg)
             if on_progress:
                 on_progress(msg)
         
@@ -362,15 +386,19 @@ class DocumentParser:
             '.jpeg': self._parse_image, '.tiff': self._parse_image,
             '.bmp': self._parse_image,
         }
+        debug_log("PARSER", f"Initialized with formats: PDF={HAS_PDF}, DOCX={HAS_DOCX}, EXCEL={HAS_EXCEL}, PPTX={HAS_PPTX}")
     
     def parse(self, file_path: str) -> str:
         ext = os.path.splitext(file_path)[1].lower()
-        print(f"[Parser] Reading: {os.path.basename(file_path)} ({ext})")
+        debug_log("PARSER", f"Parsing: {os.path.basename(file_path)} ({ext})")
         parser = self._parsers.get(ext, self._parse_text)
-        return parser(file_path)
+        text = parser(file_path)
+        debug_log("PARSER", f"Extracted {len(text)} chars from {os.path.basename(file_path)}")
+        return text
     
     def _parse_pdf(self, file_path: str) -> str:
         if not HAS_PDF:
+            debug_log("PARSER", "PyPDF2 not available")
             return ""
         
         try:
@@ -380,6 +408,7 @@ class DocumentParser:
             with open(file_path, 'rb') as f:
                 reader = PyPDF2.PdfReader(f)
                 total_pages = len(reader.pages)
+                debug_log("PARSER", f"PDF has {total_pages} pages")
                 
                 for page_num, page in enumerate(reader.pages):
                     try:
@@ -389,17 +418,22 @@ class DocumentParser:
                             text_parts.append(f"=== Page {page_num + 1} ===\n{page_text}")
                         else:
                             scanned_pages.append(page_num + 1)
-                    except Exception:
+                    except Exception as e:
+                        debug_log("PARSER", f"Page {page_num + 1} error: {e}")
                         scanned_pages.append(page_num + 1)
             
             text = "\n\n".join(text_parts)
             
+            if scanned_pages:
+                debug_log("PARSER", f"Scanned pages detected: {scanned_pages}")
+            
             if not text.strip() and scanned_pages and self.ocr.available and self.ocr.pdf_support:
+                debug_log("PARSER", "Falling back to OCR for PDF")
                 text = self.ocr.ocr_pdf(file_path, dpi=200)
             
             return text.strip()
         except Exception as e:
-            print(f"[Parser] PDF error: {e}")
+            debug_log("PARSER", f"PDF error: {e}")
             return ""
     
     def _parse_docx(self, file_path: str) -> str:
@@ -418,7 +452,7 @@ class DocumentParser:
             
             return "\n".join(text_parts)
         except Exception as e:
-            print(f"[Parser] DOCX error: {e}")
+            debug_log("PARSER", f"DOCX error: {e}")
             return ""
     
     def _parse_excel(self, file_path: str) -> str:
@@ -441,7 +475,7 @@ class DocumentParser:
             wb.close()
             return "\n".join(text_parts)
         except Exception as e:
-            print(f"[Parser] Excel error: {e}")
+            debug_log("PARSER", f"Excel error: {e}")
             return ""
     
     def _parse_pptx(self, file_path: str) -> str:
@@ -459,7 +493,7 @@ class DocumentParser:
             
             return "\n\n".join(text_parts)
         except Exception as e:
-            print(f"[Parser] PPTX error: {e}")
+            debug_log("PARSER", f"PPTX error: {e}")
             return ""
     
     def _parse_image(self, file_path: str) -> str:
@@ -489,6 +523,7 @@ class EmbeddingModel:
     def __init__(self):
         self._model = None
         self._loaded = False
+        debug_log("EMBEDDING", "Initialized (not loaded)")
     
     @property
     def model(self):
@@ -500,10 +535,11 @@ class EmbeddingModel:
     
     def load(self, on_progress: Optional[Callable[[str], None]] = None) -> bool:
         if self._loaded:
+            debug_log("EMBEDDING", "Already loaded")
             return True
         
         def log(msg):
-            print(f"[Embedding] {msg}")
+            debug_log("EMBEDDING", msg)
             if on_progress:
                 on_progress(msg)
         
@@ -512,31 +548,37 @@ class EmbeddingModel:
             bundled_path = get_resource_path(config.EMBEDDING_MODEL_FOLDER)
             
             if os.path.exists(bundled_path):
-                log(f"Loading: {bundled_path}")
+                log(f"Loading from: {bundled_path}")
                 self._model = SentenceTransformer(bundled_path)
                 self._loaded = True
-                log("Embedding model loaded!")
+                log("✓ Embedding model loaded!")
                 return True
             else:
-                log(f"Model not found: {bundled_path}")
+                log(f"✗ Model not found: {bundled_path}")
                 return False
         except Exception as e:
-            log(f"Error: {e}")
+            log(f"✗ Error: {e}")
+            import traceback
+            traceback.print_exc()
             return False
     
     def encode(self, texts: List[str], is_query: bool = False) -> np.ndarray:
         if self._model is None:
+            debug_log("EMBEDDING", "Model not loaded, returning empty array")
             return np.array([])
         
         if is_query:
             texts = [f"Represent this sentence for searching relevant passages: {t}" for t in texts]
         
-        return self._model.encode(
+        debug_log("EMBEDDING", f"Encoding {len(texts)} texts (query={is_query})")
+        result = self._model.encode(
             texts, 
             normalize_embeddings=True, 
             show_progress_bar=False,
             batch_size=config.BATCH_SIZE
         )
+        debug_log("EMBEDDING", f"Encoded shape: {result.shape}")
+        return result
 
 
 # ============================================================================
@@ -558,6 +600,8 @@ class RAG:
         # Global paths
         self.user_docs_folder = get_writable_path("documents")
         self.bundled_data_folder = get_resource_path(config.RAG_FOLDER)
+        
+        debug_log("RAG", f"Initialized. Docs folder: {self.user_docs_folder}")
     
     def _get_conv_index_file(self, conv_id: str) -> str:
         return get_writable_path(f"index_{conv_id}.json")
@@ -581,58 +625,65 @@ class RAG:
     def initialize(self, on_progress: Optional[Callable[[str], None]] = None) -> bool:
         """Initialize RAG system (load embedding model only)."""
         def log(msg):
-            print(f"[RAG] {msg}")
+            debug_log("RAG", msg)
             if on_progress:
                 on_progress(msg)
         
         if not config.RAG_ENABLED:
+            log("RAG disabled in config")
             return True
         
         os.makedirs(self.user_docs_folder, exist_ok=True)
         
         ocr_status = self.ocr_processor.get_status()
-        log("✓ OCR available" if ocr_status["ocr_available"] else "⚠ OCR not available")
+        log(f"OCR status: {ocr_status}")
         
         log("Loading embedding model...")
         if not self.embedding_model.load(on_progress):
-            log("⚠ Using keyword search (no embedding)")
+            log("⚠ Embedding model failed - using keyword search")
         
-        # Don't load any documents at startup - wait for conversation selection
         self.documents = []
         self._embeddings = None
         
-        log("RAG ready (no documents loaded)")
+        log("✓ RAG initialized (no documents loaded yet)")
         return True
     
     def load_conversation_documents(self, conv_id: str, on_progress: Optional[Callable[[str], None]] = None):
         """Load documents for a specific conversation."""
         def log(msg):
-            print(f"[RAG] {msg}")
+            debug_log("RAG", msg)
             if on_progress:
                 on_progress(msg)
         
+        log(f"Loading documents for conversation: {conv_id}")
         self._current_conv_id = conv_id
         
-        # Check if we have cached index for this conversation
         index_file = self._get_conv_index_file(conv_id)
         embeddings_file = self._get_conv_embeddings_file(conv_id)
+        
+        log(f"Index file: {index_file} (exists={os.path.exists(index_file)})")
+        log(f"Embeddings file: {embeddings_file} (exists={os.path.exists(embeddings_file)})")
         
         if os.path.exists(index_file):
             try:
                 with open(index_file, "r", encoding="utf-8") as f:
                     self.documents = json.load(f)
                 
+                log(f"Loaded {len(self.documents)} chunks from index")
+                
                 if os.path.exists(embeddings_file) and self.embedding_model.is_loaded:
                     self._embeddings = np.load(embeddings_file)
+                    log(f"Loaded embeddings: shape={self._embeddings.shape}")
                 else:
                     self._embeddings = None
+                    log("No embeddings loaded (file missing or model not ready)")
                 
-                log(f"Loaded {len(self.documents)} chunks for conversation")
                 return
             except Exception as e:
                 log(f"Error loading index: {e}")
+                import traceback
+                traceback.print_exc()
         
-        # No cached index - start fresh
         self.documents = []
         self._embeddings = None
         log("No documents for this conversation")
@@ -640,20 +691,24 @@ class RAG:
     def _save_index(self, log):
         """Save index for current conversation."""
         if not self._current_conv_id:
+            log("No current conversation ID - cannot save")
             return
         
         try:
             index_file = self._get_conv_index_file(self._current_conv_id)
             with open(index_file, "w", encoding="utf-8") as f:
                 json.dump(self.documents, f, ensure_ascii=False)
+            log(f"Saved index: {len(self.documents)} chunks to {index_file}")
             
             if self._embeddings is not None:
                 embeddings_file = self._get_conv_embeddings_file(self._current_conv_id)
                 np.save(embeddings_file, self._embeddings)
+                log(f"Saved embeddings: shape={self._embeddings.shape} to {embeddings_file}")
             
-            log(f"Index saved: {len(self.documents)} chunks")
         except Exception as e:
             log(f"Save error: {e}")
+            import traceback
+            traceback.print_exc()
     
     def _split_text(self, text: str, chunk_size: int) -> List[str]:
         overlap = config.RAG_CHUNK_OVERLAP
@@ -683,7 +738,10 @@ class RAG:
         return chunks
     
     def search(self, query: str, top_k: int = None) -> Tuple[str, List[dict]]:
+        debug_log("RAG", f"Search query: '{query[:50]}...' (docs={len(self.documents)}, embeddings={self._embeddings is not None})")
+        
         if not self.documents:
+            debug_log("RAG", "No documents to search")
             self.last_sources = []
             return "", []
         
@@ -692,8 +750,12 @@ class RAG:
         results = []
         
         if self._embeddings is not None and self.embedding_model.is_loaded:
+            debug_log("RAG", "Using semantic search")
             query_emb = self.embedding_model.encode([query], is_query=True)[0]
             similarities = np.dot(self._embeddings, query_emb)
+            
+            debug_log("RAG", f"Similarity stats: min={similarities.min():.3f}, max={similarities.max():.3f}, mean={similarities.mean():.3f}")
+            
             top_indices = np.argsort(similarities)[-top_k * 2:][::-1]
             
             for idx in top_indices:
@@ -701,7 +763,10 @@ class RAG:
                 if score >= min_score:
                     results.append((self.documents[idx], score))
             results = results[:top_k]
+            
+            debug_log("RAG", f"Found {len(results)} results above threshold {min_score}")
         else:
+            debug_log("RAG", "Using keyword search (no embeddings)")
             query_words = set(query.lower().split())
             scored = []
             for doc in self.documents:
@@ -713,8 +778,10 @@ class RAG:
                     scored.append((doc, score))
             scored.sort(key=lambda x: x[1], reverse=True)
             results = scored[:top_k]
+            debug_log("RAG", f"Keyword search found {len(results)} results")
         
         if not results:
+            debug_log("RAG", "No results found")
             self.last_sources = []
             return "", []
         
@@ -729,9 +796,12 @@ class RAG:
                 "score": score,
                 "preview": doc["content"][:200] + "..." if len(doc["content"]) > 200 else doc["content"]
             })
-            context_parts.append(f"[Document {i} - {doc['source']}]\n{doc['content']}")
+            context_parts.append(f"[Document {i} - {doc['source']} (chunk {doc['chunk_id']}, score: {score:.3f})]\n{doc['content']}")
+            debug_log("RAG", f"Result {i}: {doc['source']} chunk {doc['chunk_id']} score={score:.3f}")
         
-        return "\n\n".join(context_parts), self.last_sources
+        context = "\n\n".join(context_parts)
+        debug_log("RAG", f"Context length: {len(context)} chars")
+        return context, self.last_sources
     
     def format_sources_for_display(self) -> str:
         if not self.last_sources:
@@ -739,7 +809,7 @@ class RAG:
         
         lines = ["", "📚 Sources:"]
         for src in self.last_sources:
-            lines.append(f"  [{src['index']}] {src['source']} (score: {src['score']:.2f})")
+            lines.append(f"  [{src['index']}] {src['source']} (chunk {src['chunk_id']}, score: {src['score']:.3f})")
             preview = src['preview'][:80].replace('\n', ' ')
             lines.append(f"      \"{preview}...\"")
         
@@ -748,16 +818,17 @@ class RAG:
     def add_documents(self, file_paths: list, on_progress: Optional[Callable[[str], None]] = None) -> bool:
         """Add documents to current conversation."""
         def log(msg):
-            print(f"[RAG] {msg}")
+            debug_log("RAG", msg)
             if on_progress:
                 on_progress(msg)
         
         if not self._current_conv_id:
-            log("No conversation selected")
+            log("✗ No conversation selected")
             return False
         
         try:
             docs_folder = self._get_conv_docs_folder(self._current_conv_id)
+            log(f"Docs folder: {docs_folder}")
             added = 0
             new_chunks = []
             
@@ -766,21 +837,20 @@ class RAG:
                 ext = os.path.splitext(filename)[1].lower()
                 
                 if ext not in DocumentParser.SUPPORTED_EXTENSIONS:
-                    log(f"⚠ {filename}: unsupported")
+                    log(f"⚠ {filename}: unsupported extension")
                     continue
                 
-                # Copy file to conversation folder
                 dest = os.path.join(docs_folder, filename)
                 shutil.copy2(file_path, dest)
-                log(f"✓ Copied: {filename}")
+                log(f"✓ Copied: {filename} -> {dest}")
                 
-                # Parse and chunk
                 text = self.parser.parse(dest)
                 if not text or len(text.strip()) < 10:
-                    log(f"⚠ {filename}: empty")
+                    log(f"⚠ {filename}: empty or too short ({len(text)} chars)")
                     continue
                 
                 chunks = self._split_text(text, config.RAG_CHUNK_SIZE)
+                log(f"✓ {filename}: {len(chunks)} chunks from {len(text)} chars")
                 
                 for i, chunk in enumerate(chunks):
                     new_chunks.append({
@@ -789,31 +859,36 @@ class RAG:
                         "content": chunk
                     })
                 
-                log(f"✓ {filename}: {len(chunks)} chunks")
                 added += 1
             
             if added == 0:
+                log("✗ No documents added")
                 return False
             
-            # Add to existing documents
             self.documents.extend(new_chunks)
+            log(f"Total documents: {len(self.documents)} chunks")
             
-            # Re-encode all embeddings
             if self.embedding_model.is_loaded:
                 log(f"Encoding {len(self.documents)} chunks...")
                 texts = [c["content"] for c in self.documents]
                 self._embeddings = self.embedding_model.encode(texts, is_query=False)
+                log(f"✓ Embeddings shape: {self._embeddings.shape}")
+            else:
+                log("⚠ Embedding model not loaded - using keyword search")
             
             self._save_index(log)
             
             return len(self.documents) > 0
         except Exception as e:
-            log(f"Error: {e}")
+            log(f"✗ Error: {e}")
+            import traceback
+            traceback.print_exc()
             return False
     
     def clear_conversation_documents(self, conv_id: str):
         """Clear all documents for a conversation."""
-        # Delete index files
+        debug_log("RAG", f"Clearing documents for conversation: {conv_id}")
+        
         index_file = self._get_conv_index_file(conv_id)
         embeddings_file = self._get_conv_embeddings_file(conv_id)
         
@@ -821,21 +896,22 @@ class RAG:
             if os.path.exists(f):
                 try:
                     os.remove(f)
-                except Exception:
-                    pass
+                    debug_log("RAG", f"Deleted: {f}")
+                except Exception as e:
+                    debug_log("RAG", f"Error deleting {f}: {e}")
         
-        # Delete documents folder
         docs_folder = os.path.join(self.user_docs_folder, conv_id)
         if os.path.exists(docs_folder):
             try:
                 shutil.rmtree(docs_folder)
-            except Exception:
-                pass
+                debug_log("RAG", f"Deleted folder: {docs_folder}")
+            except Exception as e:
+                debug_log("RAG", f"Error deleting folder: {e}")
         
-        # Clear current state if this is the current conversation
         if self._current_conv_id == conv_id:
             self.documents = []
             self._embeddings = None
+            debug_log("RAG", "Cleared current conversation state")
 
 
 # ============================================================================
@@ -852,26 +928,31 @@ class LLMEngine:
         self.is_ready = False
         self.error = None
         self._max_history = 3
+        debug_log("LLM", "Initialized")
     
     def load(self, on_progress: Optional[Callable[[str], None]] = None) -> bool:
         def log(msg):
-            print(f"[LLM] {msg}")
+            debug_log("LLM", msg)
             if on_progress:
                 on_progress(msg)
         
         try:
+            log("Initializing RAG...")
             self.rag.initialize(log)
             
             log("Importing llama_cpp...")
             from llama_cpp import Llama
             
             model_path = get_resource_path(config.MODEL_FILE)
-            log(f"Model: {model_path}")
+            log(f"Model path: {model_path}")
             
             if not os.path.exists(model_path):
                 raise FileNotFoundError(f"Model not found: {model_path}")
             
-            log("Loading model...")
+            file_size = os.path.getsize(model_path) / (1024 * 1024)
+            log(f"Model size: {file_size:.1f} MB")
+            
+            log("Loading LLM model...")
             self.llm = Llama(
                 model_path=model_path,
                 n_ctx=config.CONTEXT_SIZE,
@@ -880,16 +961,16 @@ class LLMEngine:
                 n_batch=512,
                 use_mmap=True,
                 use_mlock=False,
-                verbose=False
+                verbose=DEBUG
             )
             
             self.is_ready = True
-            log("Ready!")
+            log("✓ LLM Ready!")
             return True
             
         except Exception as e:
             self.error = str(e)
-            log(f"Error: {e}")
+            log(f"✗ Error: {e}")
             import traceback
             traceback.print_exc()
             return False
@@ -898,11 +979,11 @@ class LLMEngine:
         if rag_context:
             system = f"""{config.SYSTEM_PROMPT}
 
-=== CONTEXT ===
+=== CONTEXT DOCUMENTS ===
 {rag_context}
-=== END ===
+=== END CONTEXT ===
 
-Answer based on context. If not found, say so."""
+Answer based on the context above. If the information is not found in the context, say so clearly."""
         else:
             system = config.SYSTEM_PROMPT
         
@@ -915,10 +996,14 @@ Answer based on context. If not found, say so."""
         prompt += f"<|im_start|>user\n{message}<|im_end|>\n"
         prompt += "<|im_start|>assistant\n"
         
+        debug_log("LLM", f"Prompt length: {len(prompt)} chars")
         return prompt
     
     def generate(self, message: str) -> Iterator[str]:
+        debug_log("LLM", f"Generate called with message: '{message[:50]}...'")
+        
         if not self.is_ready:
+            debug_log("LLM", "Model not ready!")
             yield "Error: Model not ready"
             return
         
@@ -926,13 +1011,18 @@ Answer based on context. If not found, say so."""
         sources = []
         
         if config.RAG_ENABLED and self.rag.documents:
+            debug_log("LLM", f"Searching RAG ({len(self.rag.documents)} docs)")
             rag_context, sources = self.rag.search(message)
+            debug_log("LLM", f"RAG returned {len(sources)} sources, context={len(rag_context)} chars")
+        else:
+            debug_log("LLM", f"RAG skipped: enabled={config.RAG_ENABLED}, docs={len(self.rag.documents)}")
         
         prompt = self._build_prompt(message, rag_context)
         
         full_response = ""
         
         try:
+            debug_log("LLM", "Starting generation...")
             for chunk in self.llm(
                 prompt,
                 max_tokens=config.MAX_TOKENS,
@@ -945,8 +1035,9 @@ Answer based on context. If not found, say so."""
                 token = chunk["choices"][0]["text"]
                 full_response += token
                 yield token
+            debug_log("LLM", f"Generation complete: {len(full_response)} chars")
         except Exception as e:
-            print(f"[LLM] Generation error: {e}")
+            debug_log("LLM", f"Generation error: {e}")
             yield f"\n[Error: {e}]"
         
         if config.RAG_SHOW_SOURCES and sources:
@@ -963,7 +1054,7 @@ Answer based on context. If not found, say so."""
     
     def clear_history(self):
         self.history = []
-        print("[LLM] History cleared")
+        debug_log("LLM", "History cleared")
 
 
 # ============================================================================
@@ -1002,6 +1093,7 @@ class ConversationManager:
         os.makedirs(self.data_dir, exist_ok=True)
         os.makedirs(self.docs_dir, exist_ok=True)
         
+        debug_log("CONV", f"Data dir: {self.data_dir}")
         self._load_index()
     
     def _load_index(self):
@@ -1018,9 +1110,11 @@ class ConversationManager:
                 
                 if self.current_id and self.current_id not in self.conversations:
                     self.current_id = None
+                
+                debug_log("CONV", f"Loaded {len(self.conversations)} conversations, current={self.current_id}")
                     
             except Exception as e:
-                print(f"[ConvManager] Error loading index: {e}")
+                debug_log("CONV", f"Error loading index: {e}")
                 self.conversations = {}
                 self.current_id = None
     
@@ -1032,8 +1126,9 @@ class ConversationManager:
             }
             with open(self.index_file, "w", encoding="utf-8") as f:
                 json.dump(data, f, ensure_ascii=False, indent=2)
+            debug_log("CONV", "Index saved")
         except Exception as e:
-            print(f"[ConvManager] Error saving index: {e}")
+            debug_log("CONV", f"Error saving index: {e}")
     
     def _generate_id(self) -> str:
         return datetime.now().strftime("%Y%m%d_%H%M%S_%f")
@@ -1063,7 +1158,7 @@ class ConversationManager:
         self.current_id = conv_id
         self._save_index()
         
-        print(f"[ConvManager] Created conversation: {conv_id}")
+        debug_log("CONV", f"Created conversation: {conv_id}")
         return conv
     
     def get_current(self) -> Optional[Conversation]:
@@ -1075,6 +1170,7 @@ class ConversationManager:
         if conv_id in self.conversations:
             self.current_id = conv_id
             self._save_index()
+            debug_log("CONV", f"Switched to conversation: {conv_id}")
             return self.conversations[conv_id]
         return None
     
@@ -1107,6 +1203,7 @@ class ConversationManager:
             conv.document_ids.append(filename)
             conv.updated_at = datetime.now().isoformat()
             self._save_index()
+            debug_log("CONV", f"Added document: {filename}")
     
     def delete_conversation(self, conv_id: str) -> bool:
         if conv_id not in self.conversations:
@@ -1119,7 +1216,7 @@ class ConversationManager:
             self.current_id = remaining[0].id if remaining else None
         
         self._save_index()
-        print(f"[ConvManager] Deleted conversation: {conv_id}")
+        debug_log("CONV", f"Deleted conversation: {conv_id}")
         return True
     
     def clear_history(self):
@@ -1128,6 +1225,7 @@ class ConversationManager:
             conv.messages = []
             conv.updated_at = datetime.now().isoformat()
             self._save_index()
+            debug_log("CONV", "History cleared")
 
 
 # ============================================================================
@@ -1371,11 +1469,14 @@ class ChatUI:
         color = ("#ff5555", "#ff5555") if is_error else ("#50fa7b", "#50fa7b")
         self.status.configure(text=text, text_color=color)
     
-    def update_doc_count(self, count: int):
+    def update_doc_count(self, count: int, chunk_count: int = 0):
         if count == 0:
             text, color = "📚 No documents", ("#888888", "#888888")
         else:
-            text, color = f"📚 {count} doc{'s' if count > 1 else ''}", ("#50fa7b", "#50fa7b")
+            text = f"📚 {count} doc{'s' if count > 1 else ''}"
+            if chunk_count > 0:
+                text += f" ({chunk_count} chunks)"
+            color = ("#50fa7b", "#50fa7b")
         self.doc_info.configure(text=text, text_color=color)
     
     def add_message(self, sender: str, text: str, tag: str = ""):
@@ -1414,6 +1515,7 @@ class ChatUI:
 
 class App:
     def __init__(self):
+        debug_log("APP", "Starting application...")
         self.root = ctk.CTk()
         self.engine = LLMEngine()
         self.conv_manager = ConversationManager()
@@ -1429,7 +1531,7 @@ class App:
             on_delete_chat=self.delete_chat
         )
         
-        self.ui.add_message("System", "🚀 Starting...", "system")
+        self.ui.add_message("System", "🚀 Starting Local Chat (Debug Mode)...", "system")
         self._load_model()
     
     def _load_model(self):
@@ -1445,6 +1547,7 @@ class App:
         threading.Thread(target=task, daemon=True).start()
     
     def _on_ready(self):
+        debug_log("APP", "Model ready, initializing UI...")
         self.ui.set_status("✅ Ready!")
         
         if not self.conv_manager.get_all():
@@ -1453,7 +1556,8 @@ class App:
         self._load_current_conversation()
         self._update_sidebar()
         
-        self.ui.add_message("System", "✨ Ready! Start chatting or load documents.", "system")
+        self.ui.add_message("System", "✨ Ready! Load documents and start chatting.", "system")
+        self.ui.add_message("System", f"📁 Data folder: {get_writable_path('')}", "system")
     
     def _update_sidebar(self):
         convs = self.conv_manager.get_all()
@@ -1463,6 +1567,7 @@ class App:
     
     def _load_current_conversation(self):
         conv = self.conv_manager.get_current()
+        debug_log("APP", f"Loading conversation: {conv.id if conv else 'None'}")
         
         if not conv:
             self.ui.clear_chat()
@@ -1475,38 +1580,43 @@ class App:
         self.engine.rag.load_conversation_documents(conv.id)
         
         self.ui.load_messages(conv.messages)
-        self.ui.update_doc_count(len(conv.document_ids))
+        self.ui.update_doc_count(len(conv.document_ids), len(self.engine.rag.documents))
         
         # Clear LLM history when switching conversations
         self.engine.clear_history()
+        
+        debug_log("APP", f"Loaded: {len(conv.messages)} messages, {len(conv.document_ids)} docs, {len(self.engine.rag.documents)} chunks")
     
     def new_chat(self):
+        debug_log("APP", "Creating new chat...")
         conv = self.conv_manager.create_conversation()
         self._load_current_conversation()
         self._update_sidebar()
-        self.ui.add_message("System", "💬 New conversation!", "system")
+        self.ui.add_message("System", "💬 New conversation created!", "system")
     
     def select_chat(self, conv_id: str):
+        debug_log("APP", f"Selecting chat: {conv_id}")
         self.conv_manager.set_current(conv_id)
         self._load_current_conversation()
         self._update_sidebar()
     
     def delete_chat(self, conv_id: str):
-        # Clear RAG documents for this conversation
+        debug_log("APP", f"Deleting chat: {conv_id}")
         self.engine.rag.clear_conversation_documents(conv_id)
-        
         self.conv_manager.delete_conversation(conv_id)
         self._load_current_conversation()
         self._update_sidebar()
     
     def send(self, message: str):
         if self.generating or not self.engine.is_ready:
+            debug_log("APP", f"Cannot send: generating={self.generating}, ready={self.engine.is_ready}")
             return
         
         if not self.conv_manager.get_current():
             self.conv_manager.create_conversation()
             self._update_sidebar()
         
+        debug_log("APP", f"Sending message: '{message[:50]}...'")
         self.ui.add_message("You", message, "user")
         self.conv_manager.add_message("user", message)
         
@@ -1525,6 +1635,7 @@ class App:
                 full_response += token
                 self.root.after(0, lambda t=token: self.ui.stream(t))
         except Exception as e:
+            debug_log("APP", f"Generation error: {e}")
             self.root.after(0, lambda: self.ui.add_message("Error", str(e), "error"))
         finally:
             clean_response = full_response.split("📚 Sources:")[0].strip()
@@ -1541,6 +1652,7 @@ class App:
         self._update_sidebar()
     
     def clear(self):
+        debug_log("APP", "Clearing history...")
         self.conv_manager.clear_history()
         self.engine.clear_history()
         self.ui.clear_chat()
@@ -1553,7 +1665,7 @@ class App:
             conv = self.conv_manager.get_current()
             self._update_sidebar()
         
-        # Set current conversation ID in RAG
+        debug_log("APP", f"Loading {len(files)} files for conversation {conv.id}")
         self.engine.rag._current_conv_id = conv.id
         
         self.ui.add_message("System", f"📥 Loading {len(files)} file(s)...", "system")
@@ -1570,17 +1682,19 @@ class App:
                     self.conv_manager.add_document(os.path.basename(f))
                 
                 conv = self.conv_manager.get_current()
-                self.root.after(0, lambda: self.ui.update_doc_count(len(conv.document_ids) if conv else 0))
-                self.root.after(0, lambda: self.ui.add_message("System", f"✅ Loaded!", "system"))
+                chunk_count = len(self.engine.rag.documents)
+                self.root.after(0, lambda: self.ui.update_doc_count(len(conv.document_ids) if conv else 0, chunk_count))
+                self.root.after(0, lambda: self.ui.add_message("System", f"✅ Loaded! Ready to answer questions.", "system"))
                 self.root.after(0, lambda: self.ui.set_status("✅ Ready!"))
                 self.root.after(0, self._update_sidebar)
             else:
-                self.root.after(0, lambda: self.ui.add_message("Error", "❌ Failed", "error"))
+                self.root.after(0, lambda: self.ui.add_message("Error", "❌ Failed to load documents", "error"))
                 self.root.after(0, lambda: self.ui.set_status("❌ Failed", is_error=True))
         
         threading.Thread(target=task, daemon=True).start()
     
     def run(self):
+        debug_log("APP", "Starting main loop...")
         self.root.mainloop()
 
 
@@ -1589,4 +1703,7 @@ class App:
 # ============================================================================
 
 if __name__ == "__main__":
+    debug_log("MAIN", f"Python {sys.version}")
+    debug_log("MAIN", f"Platform: {sys.platform}")
+    debug_log("MAIN", f"Frozen: {hasattr(sys, '_MEIPASS')}")
     App().run()
