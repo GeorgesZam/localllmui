@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Local Chat - Debug Version with Enhanced Logging
+Local Chat - Debug Version v2 - Fixed Embedding Loading
 Privacy-focused AI document assistant that runs entirely offline.
 """
 
@@ -33,7 +33,7 @@ import threading
 # DEBUG CONFIGURATION
 # ============================================================================
 
-DEBUG = True  # Set to False to disable verbose logging
+DEBUG = True
 
 def debug_log(component: str, msg: str):
     """Centralized debug logging."""
@@ -48,22 +48,20 @@ def debug_log(component: str, msg: str):
 class Config:
     """Application configuration."""
     
-    # App
-    APP_NAME = "Local Chat (Debug)"
+    APP_NAME = "Local Chat (Debug v2)"
     WINDOW_SIZE = "1100x700"
     
-    # Model
     MODEL_FILE = "models/model.gguf"
     EMBEDDING_MODEL_FOLDER = "embedding_model"
+    # Fallback: download from HuggingFace if not bundled
+    EMBEDDING_MODEL_NAME = "BAAI/bge-small-en-v1.5"
     
-    # Auto-detect optimal settings
     _CPU_COUNT = multiprocessing.cpu_count()
     CONTEXT_SIZE = 4096
     MAX_TOKENS = 512
     THREADS = max(4, _CPU_COUNT - 2)
     GPU_LAYERS = -1
     
-    # Prompt
     SYSTEM_PROMPT = """You are a helpful assistant. Answer questions based ONLY on the provided context documents.
 If the answer is not found in the context, say "I don't have this information in the provided documents."
 Be concise and specific. Quote relevant parts when possible.
@@ -71,21 +69,18 @@ Answer in the same language as the user."""
     
     STOP_TOKENS = ["<|im_end|>", "<end_of_turn>", "<|endoftext|>"]
     
-    # RAG
     RAG_ENABLED = True
     RAG_FOLDER = "data"
     RAG_CHUNK_SIZE = 400
     RAG_CHUNK_OVERLAP = 50
-    RAG_TOP_K = 5  # Increased for better coverage on large docs
-    RAG_MIN_SCORE = 0.25  # Lowered for better recall
+    RAG_TOP_K = 5
+    RAG_MIN_SCORE = 0.25
     RAG_SHOW_SOURCES = True
     
-    # Sampling
     TEMPERATURE = 0.2
     TOP_P = 0.9
     REPEAT_PENALTY = 1.1
     
-    # Performance
     BATCH_SIZE = 512
     INDEX_CACHE_ENABLED = True
 
@@ -514,11 +509,11 @@ class DocumentParser:
 
 
 # ============================================================================
-# EMBEDDING MODEL
+# EMBEDDING MODEL - FIXED VERSION
 # ============================================================================
 
 class EmbeddingModel:
-    """Lazy-loaded embedding model."""
+    """Lazy-loaded embedding model with automatic download fallback."""
     
     def __init__(self):
         self._model = None
@@ -544,18 +539,68 @@ class EmbeddingModel:
                 on_progress(msg)
         
         try:
+            log("Importing sentence_transformers...")
             from sentence_transformers import SentenceTransformer
-            bundled_path = get_resource_path(config.EMBEDDING_MODEL_FOLDER)
             
-            if os.path.exists(bundled_path):
-                log(f"Loading from: {bundled_path}")
-                self._model = SentenceTransformer(bundled_path)
+            # Try multiple paths for the bundled model
+            bundled_paths = [
+                get_resource_path(config.EMBEDDING_MODEL_FOLDER),
+                os.path.join(os.path.dirname(__file__), config.EMBEDDING_MODEL_FOLDER),
+                os.path.join(os.path.dirname(__file__), "..", config.EMBEDDING_MODEL_FOLDER),
+                config.EMBEDDING_MODEL_FOLDER,
+            ]
+            
+            model_loaded = False
+            
+            for path in bundled_paths:
+                abs_path = os.path.abspath(path)
+                log(f"Checking: {abs_path}")
+                if os.path.exists(abs_path) and os.path.isdir(abs_path):
+                    # Check if it has model files
+                    has_model_files = any(
+                        f.endswith(('.bin', '.safetensors', '.json', '.txt'))
+                        for f in os.listdir(abs_path)
+                    )
+                    if has_model_files:
+                        log(f"✓ Found bundled model at: {abs_path}")
+                        try:
+                            self._model = SentenceTransformer(abs_path)
+                            model_loaded = True
+                            break
+                        except Exception as e:
+                            log(f"✗ Failed to load from {abs_path}: {e}")
+            
+            # Fallback: download from HuggingFace
+            if not model_loaded:
+                log(f"⚠ Bundled model not found, downloading {config.EMBEDDING_MODEL_NAME}...")
+                log("This may take a minute on first run...")
+                try:
+                    self._model = SentenceTransformer(config.EMBEDDING_MODEL_NAME)
+                    model_loaded = True
+                    log("✓ Downloaded embedding model from HuggingFace")
+                    
+                    # Save for future use
+                    save_path = get_writable_path("embedding_model_cache")
+                    try:
+                        self._model.save(save_path)
+                        log(f"✓ Saved model to: {save_path}")
+                    except Exception as e:
+                        log(f"⚠ Could not save model: {e}")
+                        
+                except Exception as e:
+                    log(f"✗ Failed to download model: {e}")
+                    return False
+            
+            if model_loaded:
                 self._loaded = True
-                log("✓ Embedding model loaded!")
+                # Test the model
+                test_result = self._model.encode(["test"], normalize_embeddings=True)
+                log(f"✓ Model ready! Test encoding shape: {test_result.shape}")
                 return True
             else:
-                log(f"✗ Model not found: {bundled_path}")
+                log("✗ Could not load embedding model")
                 return False
+                
         except Exception as e:
             log(f"✗ Error: {e}")
             import traceback
@@ -567,6 +612,7 @@ class EmbeddingModel:
             debug_log("EMBEDDING", "Model not loaded, returning empty array")
             return np.array([])
         
+        # BGE models need query prefix for better retrieval
         if is_query:
             texts = [f"Represent this sentence for searching relevant passages: {t}" for t in texts]
         
@@ -597,7 +643,6 @@ class RAG:
         self.last_sources = []
         self._current_conv_id = None
         
-        # Global paths
         self.user_docs_folder = get_writable_path("documents")
         self.bundled_data_folder = get_resource_path(config.RAG_FOLDER)
         
@@ -623,7 +668,7 @@ class RAG:
         self._embeddings = value
     
     def initialize(self, on_progress: Optional[Callable[[str], None]] = None) -> bool:
-        """Initialize RAG system (load embedding model only)."""
+        """Initialize RAG system."""
         def log(msg):
             debug_log("RAG", msg)
             if on_progress:
@@ -639,13 +684,17 @@ class RAG:
         log(f"OCR status: {ocr_status}")
         
         log("Loading embedding model...")
-        if not self.embedding_model.load(on_progress):
-            log("⚠ Embedding model failed - using keyword search")
+        embedding_loaded = self.embedding_model.load(on_progress)
+        
+        if embedding_loaded:
+            log("✓ Embedding model ready for semantic search")
+        else:
+            log("⚠ Embedding model failed - will use keyword search")
         
         self.documents = []
         self._embeddings = None
         
-        log("✓ RAG initialized (no documents loaded yet)")
+        log("✓ RAG initialized")
         return True
     
     def load_conversation_documents(self, conv_id: str, on_progress: Optional[Callable[[str], None]] = None):
@@ -671,12 +720,20 @@ class RAG:
                 
                 log(f"Loaded {len(self.documents)} chunks from index")
                 
-                if os.path.exists(embeddings_file) and self.embedding_model.is_loaded:
+                # Load embeddings if available
+                if os.path.exists(embeddings_file):
                     self._embeddings = np.load(embeddings_file)
                     log(f"Loaded embeddings: shape={self._embeddings.shape}")
+                elif self.embedding_model.is_loaded and self.documents:
+                    # Regenerate embeddings if model is loaded but embeddings file missing
+                    log("Regenerating embeddings...")
+                    texts = [c["content"] for c in self.documents]
+                    self._embeddings = self.embedding_model.encode(texts, is_query=False)
+                    np.save(embeddings_file, self._embeddings)
+                    log(f"Regenerated embeddings: shape={self._embeddings.shape}")
                 else:
                     self._embeddings = None
-                    log("No embeddings loaded (file missing or model not ready)")
+                    log("No embeddings (model not loaded)")
                 
                 return
             except Exception as e:
@@ -738,7 +795,7 @@ class RAG:
         return chunks
     
     def search(self, query: str, top_k: int = None) -> Tuple[str, List[dict]]:
-        debug_log("RAG", f"Search query: '{query[:50]}...' (docs={len(self.documents)}, embeddings={self._embeddings is not None})")
+        debug_log("RAG", f"Search: '{query[:50]}...' | docs={len(self.documents)} | embeddings={self._embeddings is not None} | model_loaded={self.embedding_model.is_loaded}")
         
         if not self.documents:
             debug_log("RAG", "No documents to search")
@@ -749,8 +806,9 @@ class RAG:
         min_score = config.RAG_MIN_SCORE
         results = []
         
+        # Use semantic search if embeddings available
         if self._embeddings is not None and self.embedding_model.is_loaded:
-            debug_log("RAG", "Using semantic search")
+            debug_log("RAG", "Using SEMANTIC search")
             query_emb = self.embedding_model.encode([query], is_query=True)[0]
             similarities = np.dot(self._embeddings, query_emb)
             
@@ -764,9 +822,9 @@ class RAG:
                     results.append((self.documents[idx], score))
             results = results[:top_k]
             
-            debug_log("RAG", f"Found {len(results)} results above threshold {min_score}")
+            debug_log("RAG", f"Found {len(results)} semantic results above threshold {min_score}")
         else:
-            debug_log("RAG", "Using keyword search (no embeddings)")
+            debug_log("RAG", "Using KEYWORD search (no embeddings)")
             query_words = set(query.lower().split())
             scored = []
             for doc in self.documents:
@@ -778,7 +836,7 @@ class RAG:
                     scored.append((doc, score))
             scored.sort(key=lambda x: x[1], reverse=True)
             results = scored[:top_k]
-            debug_log("RAG", f"Keyword search found {len(results)} results")
+            debug_log("RAG", f"Found {len(results)} keyword results")
         
         if not results:
             debug_log("RAG", "No results found")
@@ -868,13 +926,15 @@ class RAG:
             self.documents.extend(new_chunks)
             log(f"Total documents: {len(self.documents)} chunks")
             
+            # Generate embeddings
             if self.embedding_model.is_loaded:
-                log(f"Encoding {len(self.documents)} chunks...")
+                log(f"Encoding {len(self.documents)} chunks with embedding model...")
                 texts = [c["content"] for c in self.documents]
                 self._embeddings = self.embedding_model.encode(texts, is_query=False)
-                log(f"✓ Embeddings shape: {self._embeddings.shape}")
+                log(f"✓ Embeddings generated: shape={self._embeddings.shape}")
             else:
-                log("⚠ Embedding model not loaded - using keyword search")
+                log("⚠ Embedding model not loaded - using keyword search only")
+                self._embeddings = None
             
             self._save_index(log)
             
@@ -1000,7 +1060,7 @@ Answer based on the context above. If the information is not found in the contex
         return prompt
     
     def generate(self, message: str) -> Iterator[str]:
-        debug_log("LLM", f"Generate called with message: '{message[:50]}...'")
+        debug_log("LLM", f"Generate: '{message[:50]}...'")
         
         if not self.is_ready:
             debug_log("LLM", "Model not ready!")
@@ -1011,9 +1071,9 @@ Answer based on the context above. If the information is not found in the contex
         sources = []
         
         if config.RAG_ENABLED and self.rag.documents:
-            debug_log("LLM", f"Searching RAG ({len(self.rag.documents)} docs)")
+            debug_log("LLM", f"Searching RAG ({len(self.rag.documents)} docs, embeddings={self.rag._embeddings is not None})")
             rag_context, sources = self.rag.search(message)
-            debug_log("LLM", f"RAG returned {len(sources)} sources, context={len(rag_context)} chars")
+            debug_log("LLM", f"RAG: {len(sources)} sources, context={len(rag_context)} chars")
         else:
             debug_log("LLM", f"RAG skipped: enabled={config.RAG_ENABLED}, docs={len(self.rag.documents)}")
         
@@ -1063,7 +1123,6 @@ Answer based on the context above. If the information is not found in the contex
 
 @dataclass
 class Conversation:
-    """Represents a single conversation."""
     id: str
     title: str
     created_at: str
@@ -1080,8 +1139,6 @@ class Conversation:
 
 
 class ConversationManager:
-    """Manages multiple conversations."""
-    
     def __init__(self):
         self.conversations: Dict[str, Conversation] = {}
         self.current_id: Optional[str] = None
@@ -1111,7 +1168,7 @@ class ConversationManager:
                 if self.current_id and self.current_id not in self.conversations:
                     self.current_id = None
                 
-                debug_log("CONV", f"Loaded {len(self.conversations)} conversations, current={self.current_id}")
+                debug_log("CONV", f"Loaded {len(self.conversations)} conversations")
                     
             except Exception as e:
                 debug_log("CONV", f"Error loading index: {e}")
@@ -1126,7 +1183,6 @@ class ConversationManager:
             }
             with open(self.index_file, "w", encoding="utf-8") as f:
                 json.dump(data, f, ensure_ascii=False, indent=2)
-            debug_log("CONV", "Index saved")
         except Exception as e:
             debug_log("CONV", f"Error saving index: {e}")
     
@@ -1158,7 +1214,7 @@ class ConversationManager:
         self.current_id = conv_id
         self._save_index()
         
-        debug_log("CONV", f"Created conversation: {conv_id}")
+        debug_log("CONV", f"Created: {conv_id}")
         return conv
     
     def get_current(self) -> Optional[Conversation]:
@@ -1170,7 +1226,6 @@ class ConversationManager:
         if conv_id in self.conversations:
             self.current_id = conv_id
             self._save_index()
-            debug_log("CONV", f"Switched to conversation: {conv_id}")
             return self.conversations[conv_id]
         return None
     
@@ -1203,7 +1258,6 @@ class ConversationManager:
             conv.document_ids.append(filename)
             conv.updated_at = datetime.now().isoformat()
             self._save_index()
-            debug_log("CONV", f"Added document: {filename}")
     
     def delete_conversation(self, conv_id: str) -> bool:
         if conv_id not in self.conversations:
@@ -1216,7 +1270,6 @@ class ConversationManager:
             self.current_id = remaining[0].id if remaining else None
         
         self._save_index()
-        debug_log("CONV", f"Deleted conversation: {conv_id}")
         return True
     
     def clear_history(self):
@@ -1225,7 +1278,6 @@ class ConversationManager:
             conv.messages = []
             conv.updated_at = datetime.now().isoformat()
             self._save_index()
-            debug_log("CONV", "History cleared")
 
 
 # ============================================================================
@@ -1469,13 +1521,15 @@ class ChatUI:
         color = ("#ff5555", "#ff5555") if is_error else ("#50fa7b", "#50fa7b")
         self.status.configure(text=text, text_color=color)
     
-    def update_doc_count(self, count: int, chunk_count: int = 0):
+    def update_doc_count(self, count: int, chunk_count: int = 0, has_embeddings: bool = False):
         if count == 0:
             text, color = "📚 No documents", ("#888888", "#888888")
         else:
             text = f"📚 {count} doc{'s' if count > 1 else ''}"
             if chunk_count > 0:
                 text += f" ({chunk_count} chunks)"
+            if has_embeddings:
+                text += " 🧠"  # Emoji to show semantic search is active
             color = ("#50fa7b", "#50fa7b")
         self.doc_info.configure(text=text, text_color=color)
     
@@ -1531,7 +1585,7 @@ class App:
             on_delete_chat=self.delete_chat
         )
         
-        self.ui.add_message("System", "🚀 Starting Local Chat (Debug Mode)...", "system")
+        self.ui.add_message("System", "🚀 Starting Local Chat (Debug v2)...", "system")
         self._load_model()
     
     def _load_model(self):
@@ -1547,7 +1601,7 @@ class App:
         threading.Thread(target=task, daemon=True).start()
     
     def _on_ready(self):
-        debug_log("APP", "Model ready, initializing UI...")
+        debug_log("APP", "Model ready!")
         self.ui.set_status("✅ Ready!")
         
         if not self.conv_manager.get_all():
@@ -1556,8 +1610,10 @@ class App:
         self._load_current_conversation()
         self._update_sidebar()
         
-        self.ui.add_message("System", "✨ Ready! Load documents and start chatting.", "system")
-        self.ui.add_message("System", f"📁 Data folder: {get_writable_path('')}", "system")
+        # Show embedding status
+        emb_status = "✓ Semantic search" if self.engine.rag.embedding_model.is_loaded else "⚠ Keyword search only"
+        self.ui.add_message("System", f"✨ Ready! {emb_status}", "system")
+        self.ui.add_message("System", f"📁 Data: {get_writable_path('')}", "system")
     
     def _update_sidebar(self):
         convs = self.conv_manager.get_all()
@@ -1576,32 +1632,31 @@ class App:
             self.engine.rag._embeddings = None
             return
         
-        # Load conversation's documents into RAG
         self.engine.rag.load_conversation_documents(conv.id)
         
         self.ui.load_messages(conv.messages)
-        self.ui.update_doc_count(len(conv.document_ids), len(self.engine.rag.documents))
+        has_embeddings = self.engine.rag._embeddings is not None
+        self.ui.update_doc_count(len(conv.document_ids), len(self.engine.rag.documents), has_embeddings)
         
-        # Clear LLM history when switching conversations
         self.engine.clear_history()
         
-        debug_log("APP", f"Loaded: {len(conv.messages)} messages, {len(conv.document_ids)} docs, {len(self.engine.rag.documents)} chunks")
+        debug_log("APP", f"Loaded: {len(conv.messages)} msgs, {len(conv.document_ids)} docs, {len(self.engine.rag.documents)} chunks, embeddings={has_embeddings}")
     
     def new_chat(self):
-        debug_log("APP", "Creating new chat...")
+        debug_log("APP", "New chat")
         conv = self.conv_manager.create_conversation()
         self._load_current_conversation()
         self._update_sidebar()
-        self.ui.add_message("System", "💬 New conversation created!", "system")
+        self.ui.add_message("System", "💬 New conversation!", "system")
     
     def select_chat(self, conv_id: str):
-        debug_log("APP", f"Selecting chat: {conv_id}")
+        debug_log("APP", f"Select chat: {conv_id}")
         self.conv_manager.set_current(conv_id)
         self._load_current_conversation()
         self._update_sidebar()
     
     def delete_chat(self, conv_id: str):
-        debug_log("APP", f"Deleting chat: {conv_id}")
+        debug_log("APP", f"Delete chat: {conv_id}")
         self.engine.rag.clear_conversation_documents(conv_id)
         self.conv_manager.delete_conversation(conv_id)
         self._load_current_conversation()
@@ -1609,14 +1664,13 @@ class App:
     
     def send(self, message: str):
         if self.generating or not self.engine.is_ready:
-            debug_log("APP", f"Cannot send: generating={self.generating}, ready={self.engine.is_ready}")
             return
         
         if not self.conv_manager.get_current():
             self.conv_manager.create_conversation()
             self._update_sidebar()
         
-        debug_log("APP", f"Sending message: '{message[:50]}...'")
+        debug_log("APP", f"Send: '{message[:50]}...'")
         self.ui.add_message("You", message, "user")
         self.conv_manager.add_message("user", message)
         
@@ -1635,7 +1689,7 @@ class App:
                 full_response += token
                 self.root.after(0, lambda t=token: self.ui.stream(t))
         except Exception as e:
-            debug_log("APP", f"Generation error: {e}")
+            debug_log("APP", f"Generate error: {e}")
             self.root.after(0, lambda: self.ui.add_message("Error", str(e), "error"))
         finally:
             clean_response = full_response.split("📚 Sources:")[0].strip()
@@ -1652,11 +1706,10 @@ class App:
         self._update_sidebar()
     
     def clear(self):
-        debug_log("APP", "Clearing history...")
         self.conv_manager.clear_history()
         self.engine.clear_history()
         self.ui.clear_chat()
-        self.ui.add_message("System", "💬 Messages cleared.", "system")
+        self.ui.add_message("System", "💬 Cleared.", "system")
     
     def load_files(self, files: tuple):
         conv = self.conv_manager.get_current()
@@ -1665,7 +1718,7 @@ class App:
             conv = self.conv_manager.get_current()
             self._update_sidebar()
         
-        debug_log("APP", f"Loading {len(files)} files for conversation {conv.id}")
+        debug_log("APP", f"Load {len(files)} files for {conv.id}")
         self.engine.rag._current_conv_id = conv.id
         
         self.ui.add_message("System", f"📥 Loading {len(files)} file(s)...", "system")
@@ -1683,18 +1736,21 @@ class App:
                 
                 conv = self.conv_manager.get_current()
                 chunk_count = len(self.engine.rag.documents)
-                self.root.after(0, lambda: self.ui.update_doc_count(len(conv.document_ids) if conv else 0, chunk_count))
-                self.root.after(0, lambda: self.ui.add_message("System", f"✅ Loaded! Ready to answer questions.", "system"))
+                has_embeddings = self.engine.rag._embeddings is not None
+                
+                search_type = "semantic 🧠" if has_embeddings else "keyword"
+                self.root.after(0, lambda: self.ui.update_doc_count(len(conv.document_ids) if conv else 0, chunk_count, has_embeddings))
+                self.root.after(0, lambda: self.ui.add_message("System", f"✅ Ready! Using {search_type} search.", "system"))
                 self.root.after(0, lambda: self.ui.set_status("✅ Ready!"))
                 self.root.after(0, self._update_sidebar)
             else:
-                self.root.after(0, lambda: self.ui.add_message("Error", "❌ Failed to load documents", "error"))
+                self.root.after(0, lambda: self.ui.add_message("Error", "❌ Failed", "error"))
                 self.root.after(0, lambda: self.ui.set_status("❌ Failed", is_error=True))
         
         threading.Thread(target=task, daemon=True).start()
     
     def run(self):
-        debug_log("APP", "Starting main loop...")
+        debug_log("APP", "Main loop starting")
         self.root.mainloop()
 
 
