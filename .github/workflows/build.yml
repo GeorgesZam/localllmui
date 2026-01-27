@@ -93,7 +93,7 @@ jobs:
         id: cache-embedding
         with:
           path: embedding_model
-          key: bge-small-en-v1.5-v2
+          key: bge-small-en-v1.5-v3
       
       - name: Download embedding model
         if: steps.cache-embedding.outputs.cache-hit != 'true'
@@ -117,10 +117,30 @@ jobs:
           if os.path.exists(path):
               files = os.listdir(path)
               print(f'Embedding model files: {files}')
+              
+              # Check for model weights (could be .bin or .safetensors)
               has_weights = any(f.endswith(('.bin', '.safetensors')) for f in files)
               has_config = 'config.json' in files
+              has_modules = 'modules.json' in files
+              
               print(f'Has weights: {has_weights}')
               print(f'Has config: {has_config}')
+              print(f'Has modules: {has_modules}')
+              
+              # List all files with sizes
+              for f in files:
+                  fpath = os.path.join(path, f)
+                  if os.path.isfile(fpath):
+                      size = os.path.getsize(fpath)
+                      print(f'  {f}: {size:,} bytes')
+                  elif os.path.isdir(fpath):
+                      print(f'  {f}/ (directory)')
+                      for sf in os.listdir(fpath):
+                          sfpath = os.path.join(fpath, sf)
+                          if os.path.isfile(sfpath):
+                              ssize = os.path.getsize(sfpath)
+                              print(f'    {sf}: {ssize:,} bytes')
+              
               if not (has_weights or has_config):
                   raise Exception('Invalid embedding model!')
           else:
@@ -244,21 +264,34 @@ jobs:
         run: mkdir -p data
         shell: bash
       
-      # Build
+      # Build with PyInstaller
       - name: Build with PyInstaller
         run: |
-          # Get paths
+          # Get paths for Python packages
           $llamaPath = (python -c "import llama_cpp; import os; print(os.path.dirname(llama_cpp.__file__))").Trim()
           $stPath = (python -c "import sentence_transformers; import os; print(os.path.dirname(sentence_transformers.__file__))").Trim()
           $ctkPath = (python -c "import customtkinter; import os; print(os.path.dirname(customtkinter.__file__))").Trim()
           
-          Write-Host "Paths:"
+          Write-Host "Package Paths:"
           Write-Host "  llama_cpp: $llamaPath"
           Write-Host "  sentence_transformers: $stPath"
           Write-Host "  customtkinter: $ctkPath"
           
+          # Verify embedding model exists
+          Write-Host ""
+          Write-Host "Embedding model contents:"
+          Get-ChildItem -Path "embedding_model" -Recurse | ForEach-Object {
+              if ($_.PSIsContainer) {
+                  Write-Host "  [DIR] $($_.FullName)"
+              } else {
+                  Write-Host "  [FILE] $($_.Name) ($($_.Length) bytes)"
+              }
+          }
+          
           cd src
           
+          # Build PyInstaller command
+          # IMPORTANT: embedding_model is added at the ROOT level of the bundle
           pyinstaller --onefile --windowed --name "LocalChat" `
             --add-data "..\models;models" `
             --add-data "..\data;data" `
@@ -275,6 +308,8 @@ jobs:
             --collect-all safetensors `
             --hidden-import llama_cpp `
             --hidden-import sentence_transformers `
+            --hidden-import sentence_transformers.models `
+            --hidden-import sentence_transformers.util `
             --hidden-import customtkinter `
             --hidden-import PyPDF2 `
             --hidden-import openpyxl `
@@ -282,8 +317,13 @@ jobs:
             --hidden-import docx `
             --hidden-import torch `
             --hidden-import transformers `
+            --hidden-import transformers.models.bert `
+            --hidden-import transformers.models.bert.modeling_bert `
+            --hidden-import transformers.models.bert.tokenization_bert `
+            --hidden-import transformers.models.bert.tokenization_bert_fast `
             --hidden-import tokenizers `
             --hidden-import safetensors `
+            --hidden-import safetensors.torch `
             --hidden-import huggingface_hub `
             --hidden-import pytesseract `
             --hidden-import pdf2image `
@@ -296,20 +336,37 @@ jobs:
             --hidden-import packaging `
             --hidden-import yaml `
             --hidden-import scipy `
+            --hidden-import scipy.spatial `
+            --hidden-import scipy.spatial.distance `
+            --hidden-import sklearn `
+            --hidden-import sklearn.metrics `
+            --hidden-import sklearn.metrics.pairwise `
             main.py
         shell: pwsh
       
+      # Verify the build
       - name: Verify build
         run: |
           if (Test-Path "src/dist/LocalChat.exe") {
             $size = (Get-Item "src/dist/LocalChat.exe").Length / 1MB
             Write-Host "Build successful! Size: $([math]::Round($size, 2)) MB"
+            
+            # List what's in the dist folder
+            Write-Host ""
+            Write-Host "Contents of dist folder:"
+            Get-ChildItem -Path "src/dist" -Recurse | ForEach-Object {
+                Write-Host "  $($_.Name) ($($_.Length) bytes)"
+            }
           } else {
             Write-Host "Build failed - exe not found"
+            Get-ChildItem -Path "src" -Recurse -Depth 2 | ForEach-Object {
+                Write-Host "  $($_.FullName)"
+            }
             exit 1
           }
         shell: pwsh
       
+      # Upload artifact
       - uses: actions/upload-artifact@v4
         with:
           name: LocalChat-Windows
