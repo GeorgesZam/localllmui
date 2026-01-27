@@ -233,8 +233,26 @@ class EmbeddingModel:
                 log(f"✗ sentence_transformers not available: {e}")
                 return False
             
-            # Check for cached model first
+            # 1. Check bundled model FIRST (for PyInstaller)
+            bundled_path = get_resource_path("embedding_model")
+            log(f"Checking bundled path: {bundled_path}")
+            
+            if os.path.exists(bundled_path) and os.path.isdir(bundled_path):
+                files = os.listdir(bundled_path)
+                log(f"Bundled files: {files}")
+                if any(f.endswith(('.bin', '.safetensors')) for f in files) or 'config.json' in files:
+                    log(f"Loading bundled model: {bundled_path}")
+                    try:
+                        self._model = SentenceTransformer(bundled_path)
+                        self._loaded = True
+                        log("✓ Loaded bundled model!")
+                        return True
+                    except Exception as e:
+                        log(f"Bundled load failed: {e}")
+            
+            # 2. Check user cache
             cache_path = get_writable_path("embedding_model_cache")
+            log(f"Checking cache path: {cache_path}")
             
             if os.path.exists(cache_path) and os.path.isdir(cache_path):
                 files = os.listdir(cache_path)
