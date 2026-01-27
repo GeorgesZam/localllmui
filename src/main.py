@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Local Chat v4 - Lazy imports to avoid dependency conflicts
+Local Chat v4 - Fixed embedding model loading
 """
 
 import sys
@@ -45,7 +45,8 @@ class Config:
     WINDOW_SIZE = "1100x700"
     
     MODEL_FILE = "models/model.gguf"
-    EMBEDDING_MODEL_NAME = "BAAI/bge-small-en-v1.5"
+    EMBEDDING_MODEL_DIR = "embedding_model"  # Directory name for bundled model
+    EMBEDDING_MODEL_NAME = "BAAI/bge-small-en-v1.5"  # Fallback HuggingFace model
     
     _CPU_COUNT = multiprocessing.cpu_count()
     CONTEXT_SIZE = 4096
@@ -77,15 +78,44 @@ config = Config()
 # UTILITIES
 # ============================================================================
 
-@lru_cache(maxsize=32)
 def get_resource_path(relative_path: str) -> str:
+    """Get absolute path to resource, works for dev and for PyInstaller."""
     if hasattr(sys, '_MEIPASS'):
-        return os.path.join(sys._MEIPASS, relative_path)
-    return relative_path
+        # PyInstaller creates a temp folder and stores path in _MEIPASS
+        base_path = sys._MEIPASS
+        debug_log("PATH", f"PyInstaller mode: _MEIPASS={base_path}")
+    else:
+        # Running in development
+        base_path = os.path.dirname(os.path.abspath(__file__))
+        # Go up one level from src/ to project root
+        base_path = os.path.dirname(base_path)
+        debug_log("PATH", f"Dev mode: base={base_path}")
+    
+    full_path = os.path.join(base_path, relative_path)
+    debug_log("PATH", f"Resource path: {relative_path} -> {full_path}")
+    return full_path
+
+def list_dir_recursive(path: str, prefix: str = "") -> List[str]:
+    """List directory contents recursively for debugging."""
+    results = []
+    try:
+        if os.path.isdir(path):
+            for item in os.listdir(path):
+                item_path = os.path.join(path, item)
+                if os.path.isdir(item_path):
+                    results.append(f"{prefix}[DIR] {item}/")
+                    results.extend(list_dir_recursive(item_path, prefix + "  "))
+                else:
+                    size = os.path.getsize(item_path)
+                    results.append(f"{prefix}[FILE] {item} ({size:,} bytes)")
+    except Exception as e:
+        results.append(f"{prefix}[ERROR] {e}")
+    return results
 
 _APP_DATA_DIR = None
 
 def get_writable_path(filename: str) -> str:
+    """Get path in writable app data directory."""
     global _APP_DATA_DIR
     if _APP_DATA_DIR is None:
         if hasattr(sys, '_MEIPASS'):
@@ -193,11 +223,11 @@ class DocumentParser:
         return ""
 
 # ============================================================================
-# EMBEDDING MODEL - COMPLETELY LAZY LOADED
+# EMBEDDING MODEL - FIXED LOADING
 # ============================================================================
 
 class EmbeddingModel:
-    """Embedding model with completely lazy loading."""
+    """Embedding model with completely lazy loading and better path detection."""
     
     def __init__(self):
         self._model = None
@@ -207,6 +237,80 @@ class EmbeddingModel:
     @property
     def is_loaded(self) -> bool:
         return self._loaded
+    
+    def _is_valid_model_dir(self, path: str) -> bool:
+        """Check if directory contains a valid sentence-transformers model."""
+        if not os.path.exists(path) or not os.path.isdir(path):
+            return False
+        
+        files = os.listdir(path)
+        
+        # Check for model weights
+        has_weights = any(
+            f.endswith(('.bin', '.safetensors')) or f == 'pytorch_model.bin' or f == 'model.safetensors'
+            for f in files
+        )
+        
+        # Check for config
+        has_config = 'config.json' in files
+        
+        # Check for sentence-transformers specific files
+        has_st_config = any(
+            f in files for f in ['config_sentence_transformers.json', 'modules.json', 'sentence_bert_config.json']
+        )
+        
+        debug_log("EMBEDDING", f"  Path: {path}")
+        debug_log("EMBEDDING", f"  Files: {files[:10]}{'...' if len(files) > 10 else ''}")
+        debug_log("EMBEDDING", f"  has_weights={has_weights}, has_config={has_config}, has_st_config={has_st_config}")
+        
+        return has_weights or (has_config and has_st_config)
+    
+    def _find_model_path(self, log: Callable[[str], None]) -> Optional[str]:
+        """Find the embedding model in various locations."""
+        
+        # List of paths to check, in order of priority
+        paths_to_check = []
+        
+        # 1. PyInstaller bundled path (highest priority)
+        if hasattr(sys, '_MEIPASS'):
+            paths_to_check.append(os.path.join(sys._MEIPASS, config.EMBEDDING_MODEL_DIR))
+            paths_to_check.append(os.path.join(sys._MEIPASS, "models", config.EMBEDDING_MODEL_DIR))
+        
+        # 2. Relative to script (for development)
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        project_root = os.path.dirname(script_dir)  # Go up from src/
+        
+        paths_to_check.extend([
+            os.path.join(project_root, config.EMBEDDING_MODEL_DIR),
+            os.path.join(project_root, "models", config.EMBEDDING_MODEL_DIR),
+            os.path.join(script_dir, config.EMBEDDING_MODEL_DIR),
+            os.path.join(script_dir, "..", config.EMBEDDING_MODEL_DIR),
+        ])
+        
+        # 3. User cache (fallback for downloaded models)
+        paths_to_check.append(get_writable_path("embedding_model_cache"))
+        
+        # 4. Current working directory
+        paths_to_check.extend([
+            os.path.join(os.getcwd(), config.EMBEDDING_MODEL_DIR),
+            os.path.join(os.getcwd(), "models", config.EMBEDDING_MODEL_DIR),
+        ])
+        
+        log("Searching for embedding model...")
+        
+        for path in paths_to_check:
+            path = os.path.abspath(path)
+            log(f"  Checking: {path}")
+            
+            if self._is_valid_model_dir(path):
+                log(f"  ✓ Found valid model at: {path}")
+                return path
+            elif os.path.exists(path):
+                log(f"  ✗ Path exists but not valid model")
+            else:
+                log(f"  ✗ Path does not exist")
+        
+        return None
     
     def load(self, on_progress: Optional[Callable[[str], None]] = None) -> bool:
         if self._loaded:
@@ -224,65 +328,64 @@ class EmbeddingModel:
         
         try:
             # Import inside function to avoid global import issues
-            log("Installing/importing sentence_transformers...")
+            log("Importing sentence_transformers...")
             
-            # Try importing
             try:
                 from sentence_transformers import SentenceTransformer
             except ImportError as e:
                 log(f"✗ sentence_transformers not available: {e}")
                 return False
             
-            # 1. Check bundled model FIRST (for PyInstaller)
-            bundled_path = get_resource_path("embedding_model")
-            log(f"Checking bundled path: {bundled_path}")
+            # Debug: Show _MEIPASS contents if in PyInstaller
+            if hasattr(sys, '_MEIPASS'):
+                log(f"PyInstaller _MEIPASS: {sys._MEIPASS}")
+                log("Contents of _MEIPASS:")
+                for line in list_dir_recursive(sys._MEIPASS)[:30]:
+                    log(f"  {line}")
             
-            if os.path.exists(bundled_path) and os.path.isdir(bundled_path):
-                files = os.listdir(bundled_path)
-                log(f"Bundled files: {files}")
-                if any(f.endswith(('.bin', '.safetensors')) for f in files) or 'config.json' in files:
-                    log(f"Loading bundled model: {bundled_path}")
-                    try:
-                        self._model = SentenceTransformer(bundled_path)
-                        self._loaded = True
-                        log("✓ Loaded bundled model!")
-                        return True
-                    except Exception as e:
-                        log(f"Bundled load failed: {e}")
+            # Find the model
+            model_path = self._find_model_path(log)
             
-            # 2. Check user cache
-            cache_path = get_writable_path("embedding_model_cache")
-            log(f"Checking cache path: {cache_path}")
+            if model_path:
+                log(f"Loading model from: {model_path}")
+                try:
+                    self._model = SentenceTransformer(model_path)
+                    self._loaded = True
+                    log("✓ Model loaded successfully!")
+                    
+                    # Test the model
+                    test_emb = self._model.encode(["test"], normalize_embeddings=True)
+                    log(f"✓ Model test passed! Embedding dim: {test_emb.shape[1]}")
+                    
+                    return True
+                except Exception as e:
+                    log(f"✗ Failed to load from path: {e}")
+                    import traceback
+                    traceback.print_exc()
             
-            if os.path.exists(cache_path) and os.path.isdir(cache_path):
-                files = os.listdir(cache_path)
-                if any(f.endswith(('.bin', '.safetensors')) for f in files) or 'config.json' in files:
-                    log(f"Loading from cache: {cache_path}")
-                    try:
-                        self._model = SentenceTransformer(cache_path)
-                        self._loaded = True
-                        log("✓ Loaded from cache!")
-                        return True
-                    except Exception as e:
-                        log(f"Cache load failed: {e}")
-            
-            # Download from HuggingFace
+            # Fallback: Download from HuggingFace
             log(f"⬇ Downloading {config.EMBEDDING_MODEL_NAME}...")
             log("(~90MB, first time only)")
             
-            self._model = SentenceTransformer(config.EMBEDDING_MODEL_NAME)
-            self._loaded = True
-            
-            # Save to cache
             try:
-                os.makedirs(cache_path, exist_ok=True)
-                self._model.save(cache_path)
-                log(f"✓ Saved to cache: {cache_path}")
+                self._model = SentenceTransformer(config.EMBEDDING_MODEL_NAME)
+                self._loaded = True
+                
+                # Save to cache for future use
+                cache_path = get_writable_path("embedding_model_cache")
+                try:
+                    os.makedirs(cache_path, exist_ok=True)
+                    self._model.save(cache_path)
+                    log(f"✓ Saved to cache: {cache_path}")
+                except Exception as e:
+                    log(f"⚠ Could not cache: {e}")
+                
+                log("✓ Embedding model ready!")
+                return True
+                
             except Exception as e:
-                log(f"⚠ Could not cache: {e}")
-            
-            log("✓ Embedding model ready!")
-            return True
+                log(f"✗ Failed to download model: {e}")
+                return False
             
         except Exception as e:
             log(f"✗ Error loading embedding model: {e}")
@@ -1221,4 +1324,8 @@ class App:
 if __name__ == "__main__":
     debug_log("MAIN", f"Python {sys.version}")
     debug_log("MAIN", f"Platform: {sys.platform}")
+    debug_log("MAIN", f"Executable: {sys.executable}")
+    debug_log("MAIN", f"CWD: {os.getcwd()}")
+    if hasattr(sys, '_MEIPASS'):
+        debug_log("MAIN", f"PyInstaller _MEIPASS: {sys._MEIPASS}")
     App().run()
