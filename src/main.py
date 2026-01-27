@@ -16,8 +16,23 @@ from functools import lru_cache
 
 if sys.platform == 'darwin':
     os.environ['TK_SILENCE_DEPRECATION'] = '1'
+
+# Fix for PyInstaller: stdout/stderr can be None in windowed mode
+# This causes issues with sentence-transformers which checks isatty()
 if hasattr(sys, '_MEIPASS'):
     multiprocessing.freeze_support()
+    
+    # Fix NoneType has no attribute 'isatty' error
+    if sys.stdout is None:
+        sys.stdout = open(os.devnull, 'w')
+    if sys.stderr is None:
+        sys.stderr = open(os.devnull, 'w')
+    
+    # Disable tqdm progress bars in PyInstaller (can cause issues)
+    os.environ['TQDM_DISABLE'] = '1'
+    
+    # Disable HuggingFace symlinks warning
+    os.environ['HF_HUB_DISABLE_SYMLINKS_WARNING'] = '1'
 
 # Only import what we absolutely need at startup
 import numpy as np
@@ -349,12 +364,19 @@ class EmbeddingModel:
             if model_path:
                 log(f"Loading model from: {model_path}")
                 try:
-                    self._model = SentenceTransformer(model_path)
+                    # Suppress progress bars and logging for cleaner PyInstaller execution
+                    import logging
+                    logging.getLogger("sentence_transformers").setLevel(logging.WARNING)
+                    
+                    self._model = SentenceTransformer(
+                        model_path,
+                        device='cpu',  # Force CPU to avoid CUDA issues in PyInstaller
+                    )
                     self._loaded = True
                     log("✓ Model loaded successfully!")
                     
                     # Test the model
-                    test_emb = self._model.encode(["test"], normalize_embeddings=True)
+                    test_emb = self._model.encode(["test"], normalize_embeddings=True, show_progress_bar=False)
                     log(f"✓ Model test passed! Embedding dim: {test_emb.shape[1]}")
                     
                     return True
@@ -368,7 +390,14 @@ class EmbeddingModel:
             log("(~90MB, first time only)")
             
             try:
-                self._model = SentenceTransformer(config.EMBEDDING_MODEL_NAME)
+                # Suppress progress bars and logging
+                import logging
+                logging.getLogger("sentence_transformers").setLevel(logging.WARNING)
+                
+                self._model = SentenceTransformer(
+                    config.EMBEDDING_MODEL_NAME,
+                    device='cpu',
+                )
                 self._loaded = True
                 
                 # Save to cache for future use
