@@ -1,8 +1,12 @@
-name: Build Local Chat
+name: Build Local RAG Application
 
 on:
   push:
-    branches: [main, master]
+    branches: [main]
+    tags:
+      - 'v*'
+  pull_request:
+    branches: [main]
   workflow_dispatch:
 
 jobs:
@@ -10,364 +14,175 @@ jobs:
     runs-on: windows-latest
     
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
       
-      - uses: actions/setup-python@v5
+      - name: Set up Python
+        uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+          cache: 'pip'
       
-      # Cache Tesseract et Poppler
-      - name: Cache Chocolatey packages
-        uses: actions/cache@v4
-        id: cache-choco
-        with:
-          path: |
-            C:\Program Files\Tesseract-OCR
-            C:\ProgramData\chocolatey\lib\poppler
-          key: choco-tesseract-poppler-v1
-      
-      - name: Install Tesseract OCR
-        if: steps.cache-choco.outputs.cache-hit != 'true'
-        run: choco install tesseract --no-progress
-        shell: pwsh
-      
-      - name: Add Tesseract to PATH
-        run: echo "C:\Program Files\Tesseract-OCR" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
-        shell: pwsh
-      
-      - name: Install Poppler
-        if: steps.cache-choco.outputs.cache-hit != 'true'
-        run: choco install poppler --no-progress
-        shell: pwsh
-      
-      # Cache le modèle LLM
-      - name: Cache LLM model
-        uses: actions/cache@v4
-        id: cache-model
-        with:
-          path: models/model.gguf
-          key: qwen-2.5-0.5b-q4km-v1
-      
-      - name: Download LLM model
-        if: steps.cache-model.outputs.cache-hit != 'true'
+      - name: Install dependencies
         run: |
-          mkdir -p models
-          curl -L -o models/model.gguf https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/main/qwen2.5-0.5b-instruct-q4_k_m.gguf
-        shell: bash
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller
       
-      # Cache les packages Python
-      - name: Cache Python packages
-        uses: actions/cache@v4
-        id: cache-python
+      - name: Create models directory
+        run: mkdir -p models
+      
+      - name: Download Qwen2.5 0.5B model
+        run: |
+          Invoke-WebRequest -Uri "https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/main/qwen2.5-0.5b-instruct-q4_k_m.gguf" -OutFile "models/qwen2.5-0.5b-instruct-q4_k_m.gguf"
+        shell: pwsh
+      
+      - name: Download BGE-small-en embedding model
+        run: |
+          python -c "from sentence_transformers import SentenceTransformer; model = SentenceTransformer('BAAI/bge-small-en-v1.5'); model.save('models/bge-small-en')"
+      
+      - name: Build with PyInstaller
+        run: |
+          pyinstaller LocalRAG.spec --clean
+      
+      - name: Verify build
+        run: |
+          dir dist
+          if (Test-Path "dist/LocalRAG.exe") { Write-Host "Build successful!" } else { exit 1 }
+        shell: pwsh
+      
+      - name: Upload Windows artifact
+        uses: actions/upload-artifact@v4
         with:
-          path: ~\AppData\Local\pip\Cache
-          key: pip-${{ runner.os }}-python311-v3
+          name: LocalRAG-Windows
+          path: dist/LocalRAG.exe
+          retention-days: 30
+
+  build-macos:
+    runs-on: macos-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
       
-      # Install dependencies - ORDER MATTERS!
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+      
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller
+          
+          # Install tkinter
+          brew install python-tk@3.11
+      
+      - name: Create models directory
+        run: mkdir -p models
+      
+      - name: Download Qwen2.5 0.5B model
+        run: |
+          curl -L "https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/main/qwen2.5-0.5b-instruct-q4_k_m.gguf" -o "models/qwen2.5-0.5b-instruct-q4_k_m.gguf"
+      
+      - name: Download BGE-small-en embedding model
+        run: |
+          python -c "from sentence_transformers import SentenceTransformer; model = SentenceTransformer('BAAI/bge-small-en-v1.5'); model.save('models/bge-small-en')"
+      
+      - name: Build with PyInstaller (macOS)
+        run: |
+          pyinstaller --name LocalRAG \
+            --onefile \
+            --windowed \
+            --add-data "models:models" \
+            --hidden-import tiktoken_ext.openai_public \
+            --hidden-import tiktoken_ext \
+            --hidden-import customtkinter \
+            --collect-data sentence_transformers \
+            --collect-submodules sentence_transformers \
+            main.py
+      
+      - name: Upload macOS artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: LocalRAG-macOS
+          path: dist/LocalRAG.app
+          retention-days: 30
+
+  build-linux:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+      
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y python3-tk
+      
       - name: Install Python dependencies
         run: |
           python -m pip install --upgrade pip
-          
-          # Core dependencies first
-          pip install requests urllib3 certifi charset-normalizer idna
-          
-          # ML dependencies
-          pip install numpy
-          pip install torch --index-url https://download.pytorch.org/whl/cpu
-          pip install transformers tokenizers huggingface_hub safetensors
-          pip install sentence-transformers
-          
-          # App dependencies
-          pip install llama-cpp-python --prefer-binary
-          pip install customtkinter
-          pip install PyPDF2 openpyxl python-pptx python-docx
-          pip install pytesseract pdf2image Pillow
-          
-          # Build tool
+          pip install -r requirements.txt
           pip install pyinstaller
-        shell: bash
       
-      # Cache le modèle d'embedding
-      - name: Cache embedding model
-        uses: actions/cache@v4
-        id: cache-embedding
-        with:
-          path: embedding_model
-          key: bge-small-en-v1.5-v3
+      - name: Create models directory
+        run: mkdir -p models
       
-      - name: Download embedding model
-        if: steps.cache-embedding.outputs.cache-hit != 'true'
+      - name: Download Qwen2.5 0.5B model
         run: |
-          python -c "
-          from sentence_transformers import SentenceTransformer
-          import os
-          print('Downloading BAAI/bge-small-en-v1.5...')
-          model = SentenceTransformer('BAAI/bge-small-en-v1.5')
-          model.save('embedding_model')
-          print('Model saved to embedding_model/')
-          print('Files:', os.listdir('embedding_model'))
-          "
-        shell: bash
+          curl -L "https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/main/qwen2.5-0.5b-instruct-q4_k_m.gguf" -o "models/qwen2.5-0.5b-instruct-q4_k_m.gguf"
       
-      - name: Verify embedding model
+      - name: Download BGE-small-en embedding model
         run: |
-          python -c "
-          import os
-          path = 'embedding_model'
-          if os.path.exists(path):
-              files = os.listdir(path)
-              print(f'Embedding model files: {files}')
-              
-              # Check for model weights (could be .bin or .safetensors)
-              has_weights = any(f.endswith(('.bin', '.safetensors')) for f in files)
-              has_config = 'config.json' in files
-              has_modules = 'modules.json' in files
-              
-              print(f'Has weights: {has_weights}')
-              print(f'Has config: {has_config}')
-              print(f'Has modules: {has_modules}')
-              
-              # List all files with sizes
-              for f in files:
-                  fpath = os.path.join(path, f)
-                  if os.path.isfile(fpath):
-                      size = os.path.getsize(fpath)
-                      print(f'  {f}: {size:,} bytes')
-                  elif os.path.isdir(fpath):
-                      print(f'  {f}/ (directory)')
-                      for sf in os.listdir(fpath):
-                          sfpath = os.path.join(fpath, sf)
-                          if os.path.isfile(sfpath):
-                              ssize = os.path.getsize(sfpath)
-                              print(f'    {sf}: {ssize:,} bytes')
-              
-              if not (has_weights or has_config):
-                  raise Exception('Invalid embedding model!')
-          else:
-              raise Exception('Embedding model folder not found!')
-          "
-        shell: bash
+          python -c "from sentence_transformers import SentenceTransformer; model = SentenceTransformer('BAAI/bge-small-en-v1.5'); model.save('models/bge-small-en')"
       
-      # ========================================
-      # RUN DIAGNOSTIC TESTS
-      # ========================================
-      - name: Run diagnostic tests
+      - name: Build with PyInstaller (Linux)
         run: |
-          python -c "
-          import sys
-          import os
-          
-          print('=' * 60)
-          print('DIAGNOSTIC TESTS')
-          print('=' * 60)
-          
-          # Test 1: Imports
-          print('\n[TEST 1] Imports')
-          imports_ok = True
-          
-          try:
-              import numpy as np
-              print(f'  numpy: OK ({np.__version__})')
-          except Exception as e:
-              print(f'  numpy: FAIL ({e})')
-              imports_ok = False
-          
-          try:
-              from sentence_transformers import SentenceTransformer
-              print('  sentence_transformers: OK')
-          except Exception as e:
-              print(f'  sentence_transformers: FAIL ({e})')
-              imports_ok = False
-          
-          try:
-              from llama_cpp import Llama
-              print('  llama_cpp: OK')
-          except Exception as e:
-              print(f'  llama_cpp: FAIL ({e})')
-              imports_ok = False
-          
-          try:
-              import customtkinter
-              print(f'  customtkinter: OK ({customtkinter.__version__})')
-          except Exception as e:
-              print(f'  customtkinter: FAIL ({e})')
-              imports_ok = False
-          
-          # Test 2: Model paths
-          print('\n[TEST 2] Model Paths')
-          
-          llm_path = 'models/model.gguf'
-          if os.path.exists(llm_path):
-              size = os.path.getsize(llm_path) / (1024*1024)
-              print(f'  LLM model: OK ({size:.1f} MB)')
-          else:
-              print(f'  LLM model: FAIL (not found)')
-              imports_ok = False
-          
-          emb_path = 'embedding_model'
-          if os.path.exists(emb_path):
-              files = os.listdir(emb_path)
-              has_model = any(f.endswith(('.bin', '.safetensors')) for f in files)
-              print(f'  Embedding model: OK ({len(files)} files, has_weights={has_model})')
-          else:
-              print(f'  Embedding model: FAIL (not found)')
-              imports_ok = False
-          
-          # Test 3: Load embedding model
-          print('\n[TEST 3] Load Embedding Model')
-          try:
-              from sentence_transformers import SentenceTransformer
-              model = SentenceTransformer('embedding_model')
-              print('  Load: OK')
-              
-              # Test encoding
-              import numpy as np
-              emb = model.encode(['test'], normalize_embeddings=True)
-              print(f'  Encode: OK (shape={emb.shape})')
-              
-              # Test similarity
-              docs = ['Georges is an engineer', 'The weather is nice', 'Python programming']
-              query = 'Who is Georges?'
-              
-              doc_emb = model.encode(docs, normalize_embeddings=True)
-              q_emb = model.encode([query], normalize_embeddings=True)[0]
-              sims = np.dot(doc_emb, q_emb)
-              
-              print(f'  Similarity test:')
-              for i, (doc, sim) in enumerate(zip(docs, sims)):
-                  print(f'    [{sim:.3f}] {doc}')
-              
-              best = np.argmax(sims)
-              if 'Georges' in docs[best]:
-                  print('  Semantic search: OK (correct doc found)')
-              else:
-                  print('  Semantic search: WARNING (unexpected result)')
-                  
-          except Exception as e:
-              print(f'  Load: FAIL ({e})')
-              import traceback
-              traceback.print_exc()
-              imports_ok = False
-          
-          print('\n' + '=' * 60)
-          if imports_ok:
-              print('ALL TESTS PASSED')
-          else:
-              print('SOME TESTS FAILED')
-              sys.exit(1)
-          print('=' * 60)
-          "
-        shell: bash
-      
-      # Create data folder
-      - name: Create data folder
-        run: mkdir -p data
-        shell: bash
-      
-      # Build with PyInstaller
-      - name: Build with PyInstaller
-        run: |
-          # Get paths for Python packages
-          $llamaPath = (python -c "import llama_cpp; import os; print(os.path.dirname(llama_cpp.__file__))").Trim()
-          $stPath = (python -c "import sentence_transformers; import os; print(os.path.dirname(sentence_transformers.__file__))").Trim()
-          $ctkPath = (python -c "import customtkinter; import os; print(os.path.dirname(customtkinter.__file__))").Trim()
-          
-          Write-Host "Package Paths:"
-          Write-Host "  llama_cpp: $llamaPath"
-          Write-Host "  sentence_transformers: $stPath"
-          Write-Host "  customtkinter: $ctkPath"
-          
-          # Verify embedding model exists
-          Write-Host ""
-          Write-Host "Embedding model contents:"
-          Get-ChildItem -Path "embedding_model" -Recurse | ForEach-Object {
-              if ($_.PSIsContainer) {
-                  Write-Host "  [DIR] $($_.FullName)"
-              } else {
-                  Write-Host "  [FILE] $($_.Name) ($($_.Length) bytes)"
-              }
-          }
-          
-          cd src
-          
-          # Build PyInstaller command
-          # IMPORTANT: embedding_model is added at the ROOT level of the bundle
-          pyinstaller --onefile --windowed --name "LocalChat" `
-            --add-data "..\models;models" `
-            --add-data "..\data;data" `
-            --add-data "..\embedding_model;embedding_model" `
-            --add-data "$llamaPath;llama_cpp" `
-            --add-data "$stPath;sentence_transformers" `
-            --add-data "$ctkPath;customtkinter" `
-            --collect-all llama_cpp `
-            --collect-all sentence_transformers `
-            --collect-all customtkinter `
-            --collect-all transformers `
-            --collect-all tokenizers `
-            --collect-all huggingface_hub `
-            --collect-all safetensors `
-            --hidden-import llama_cpp `
-            --hidden-import sentence_transformers `
-            --hidden-import sentence_transformers.models `
-            --hidden-import sentence_transformers.util `
-            --hidden-import customtkinter `
-            --hidden-import PyPDF2 `
-            --hidden-import openpyxl `
-            --hidden-import pptx `
-            --hidden-import docx `
-            --hidden-import torch `
-            --hidden-import transformers `
-            --hidden-import transformers.models.bert `
-            --hidden-import transformers.models.bert.modeling_bert `
-            --hidden-import transformers.models.bert.tokenization_bert `
-            --hidden-import transformers.models.bert.tokenization_bert_fast `
-            --hidden-import tokenizers `
-            --hidden-import safetensors `
-            --hidden-import safetensors.torch `
-            --hidden-import huggingface_hub `
-            --hidden-import pytesseract `
-            --hidden-import pdf2image `
-            --hidden-import PIL `
-            --hidden-import requests `
-            --hidden-import numpy `
-            --hidden-import tqdm `
-            --hidden-import regex `
-            --hidden-import filelock `
-            --hidden-import packaging `
-            --hidden-import yaml `
-            --hidden-import scipy `
-            --hidden-import scipy.spatial `
-            --hidden-import scipy.spatial.distance `
-            --hidden-import sklearn `
-            --hidden-import sklearn.metrics `
-            --hidden-import sklearn.metrics.pairwise `
+          pyinstaller --name LocalRAG \
+            --onefile \
+            --add-data "models:models" \
+            --hidden-import tiktoken_ext.openai_public \
+            --hidden-import tiktoken_ext \
+            --hidden-import customtkinter \
+            --collect-data sentence_transformers \
+            --collect-submodules sentence_transformers \
             main.py
-        shell: pwsh
       
-      # Verify the build
-      - name: Verify build
-        run: |
-          if (Test-Path "src/dist/LocalChat.exe") {
-            $size = (Get-Item "src/dist/LocalChat.exe").Length / 1MB
-            Write-Host "Build successful! Size: $([math]::Round($size, 2)) MB"
-            
-            # List what's in the dist folder
-            Write-Host ""
-            Write-Host "Contents of dist folder:"
-            Get-ChildItem -Path "src/dist" -Recurse | ForEach-Object {
-                Write-Host "  $($_.Name) ($($_.Length) bytes)"
-            }
-          } else {
-            Write-Host "Build failed - exe not found"
-            Get-ChildItem -Path "src" -Recurse -Depth 2 | ForEach-Object {
-                Write-Host "  $($_.FullName)"
-            }
-            exit 1
-          }
-        shell: pwsh
-      
-      # Upload artifact
-      - uses: actions/upload-artifact@v4
+      - name: Upload Linux artifact
+        uses: actions/upload-artifact@v4
         with:
-          name: LocalChat-Windows
-          path: src/dist/*.exe
+          name: LocalRAG-Linux
+          path: dist/LocalRAG
+          retention-days: 30
+
+  create-release:
+    needs: [build-windows, build-macos, build-linux]
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+    
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+      
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            artifacts/LocalRAG-Windows/LocalRAG.exe
+            artifacts/LocalRAG-macOS/LocalRAG.app
+            artifacts/LocalRAG-Linux/LocalRAG
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
