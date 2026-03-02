@@ -1,7 +1,5 @@
-"""
-Modern User Interface with CustomTkinter and Sidebar.
-"""
-
+import os
+import re
 import customtkinter as ctk
 from tkinter import filedialog, messagebox
 from typing import Callable
@@ -15,18 +13,18 @@ class ConversationItem(ctk.CTkFrame):
     def __init__(self, parent, conv_id: str, title: str, doc_count: int,
                  is_active: bool, on_select: Callable, on_delete: Callable):
         super().__init__(parent, corner_radius=8, height=50)
-        
+
         self.conv_id = conv_id
         self.on_select = on_select
         self.on_delete = on_delete
-        
+
         if is_active:
             self.configure(fg_color=("#3b7ac7", "#2d5f9e"))
         else:
             self.configure(fg_color=("gray75", "gray25"))
-        
+
         self.bind("<Button-1>", lambda e: self.on_select(self.conv_id))
-        
+
         title_label = ctk.CTkLabel(
             self,
             text=title[:25] + "..." if len(title) > 25 else title,
@@ -35,7 +33,7 @@ class ConversationItem(ctk.CTkFrame):
         )
         title_label.pack(side="left", padx=10, pady=5, fill="x", expand=True)
         title_label.bind("<Button-1>", lambda e: self.on_select(self.conv_id))
-        
+
         if doc_count > 0:
             doc_badge = ctk.CTkLabel(
                 self, text=f"📄{doc_count}",
@@ -44,7 +42,7 @@ class ConversationItem(ctk.CTkFrame):
             )
             doc_badge.pack(side="left", padx=(0, 5))
             doc_badge.bind("<Button-1>", lambda e: self.on_select(self.conv_id))
-        
+
         delete_btn = ctk.CTkButton(
             self, text="✕", width=24, height=24, corner_radius=4,
             fg_color="transparent", hover_color=("#ff5555", "#cc4444"),
@@ -57,48 +55,48 @@ class ConversationItem(ctk.CTkFrame):
 class Sidebar(ctk.CTkFrame):
     def __init__(self, parent, on_new: Callable, on_select: Callable, on_delete: Callable):
         super().__init__(parent, width=250, corner_radius=0)
-        
+
         self.on_new = on_new
         self.on_select = on_select
         self.on_delete = on_delete
-        
+
         self.pack_propagate(False)
         self._create_widgets()
-    
+
     def _create_widgets(self):
         header = ctk.CTkFrame(self, fg_color="transparent", height=60)
         header.pack(fill="x", padx=10, pady=10)
         header.pack_propagate(False)
-        
+
         ctk.CTkLabel(header, text="💬 Chats",
                      font=ctk.CTkFont(size=18, weight="bold")).pack(side="left", pady=10)
-        
+
         ctk.CTkButton(
             header, text="+ New", width=70, height=32, corner_radius=8,
             font=ctk.CTkFont(size=12, weight="bold"),
             fg_color=("#50fa7b", "#40c969"), hover_color=("#40c969", "#30b959"),
             text_color=("#000000", "#000000"), command=self.on_new
         ).pack(side="right", pady=10)
-        
+
         ctk.CTkFrame(self, height=2, fg_color=("gray70", "gray30")).pack(fill="x", padx=10, pady=(0, 10))
-        
+
         self.conv_list = ctk.CTkScrollableFrame(
             self, fg_color="transparent",
             scrollbar_button_color=("#4a9eff", "#3b7ac7")
         )
         self.conv_list.pack(fill="both", expand=True, padx=5, pady=5)
-    
+
     def update_conversations(self, conversations: list, current_id: str):
         for widget in self.conv_list.winfo_children():
             widget.destroy()
-        
+
         if not conversations:
             ctk.CTkLabel(
                 self.conv_list, text="No conversations yet.\nClick '+ New' to start!",
                 font=ctk.CTkFont(size=12), text_color=("gray50", "gray50")
             ).pack(pady=20)
             return
-        
+
         for conv in conversations:
             item = ConversationItem(
                 self.conv_list, conv_id=conv.id, title=conv.title,
@@ -106,7 +104,7 @@ class Sidebar(ctk.CTkFrame):
                 on_select=self.on_select, on_delete=self._confirm_delete
             )
             item.pack(fill="x", pady=2)
-    
+
     def _confirm_delete(self, conv_id: str):
         if messagebox.askyesno("Delete Chat", "Delete this conversation?"):
             self.on_delete(conv_id)
@@ -122,71 +120,66 @@ class ChatUI:
         self.on_new_chat = on_new_chat
         self.on_select_chat = on_select_chat
         self.on_delete_chat = on_delete_chat
-        
+
         self._setup_window()
         self._create_widgets()
-    
+
     def _setup_window(self):
         self.root.title(f"🤖 {config.APP_NAME}")
         self.root.geometry(config.WINDOW_SIZE)
         self.root.minsize(900, 600)
-        
+
         self.root.grid_rowconfigure(0, weight=1)
         self.root.grid_columnconfigure(1, weight=1)
-    
+
     def _create_widgets(self):
-        # Sidebar
         self.sidebar = Sidebar(
             self.root, on_new=self.on_new_chat,
             on_select=self.on_select_chat, on_delete=self.on_delete_chat
         )
         self.sidebar.grid(row=0, column=0, sticky="nsew")
-        
-        # Main area
+
         main_frame = ctk.CTkFrame(self.root, fg_color="transparent")
         main_frame.grid(row=0, column=1, sticky="nsew", padx=(0, 10), pady=10)
         main_frame.grid_rowconfigure(2, weight=1)
         main_frame.grid_columnconfigure(0, weight=1)
-        
-        # Header
+
         header = ctk.CTkFrame(main_frame, fg_color="transparent")
         header.grid(row=0, column=0, sticky="ew", padx=10, pady=(10, 5))
-        
+
         ctk.CTkLabel(header, text=f"🤖 {config.APP_NAME}",
                      font=ctk.CTkFont(family="Arial", size=24, weight="bold")).pack(side="left")
-        
+
         self.status = ctk.CTkLabel(header, text="⏳ Loading...",
                                    font=ctk.CTkFont(size=12), text_color=("#888888", "#888888"))
         self.status.pack(side="right", padx=10)
-        
-        # Toolbar
+
         toolbar = ctk.CTkFrame(main_frame, fg_color="transparent")
         toolbar.grid(row=1, column=0, sticky="ew", padx=10, pady=5)
-        
+
         ctk.CTkButton(
             toolbar, text="📁 Load Files", command=self._load_files,
             width=120, height=32, corner_radius=8,
             font=ctk.CTkFont(size=12, weight="bold"),
             fg_color=("#4a9eff", "#3b7ac7"), hover_color=("#3b7ac7", "#2d5f9e")
         ).pack(side="left", padx=(0, 10))
-        
+
         ctk.CTkButton(
             toolbar, text="🗑️ Clear", command=self.on_clear,
             width=100, height=32, corner_radius=8,
             font=ctk.CTkFont(size=12, weight="bold"),
             fg_color=("#ff5555", "#cc4444"), hover_color=("#ff7777", "#dd5555")
         ).pack(side="left")
-        
+
         self.doc_info = ctk.CTkLabel(toolbar, text="📚 No documents",
                                      font=ctk.CTkFont(size=11), text_color=("#888888", "#888888"))
         self.doc_info.pack(side="right", padx=10)
-        
-        # Chat area
+
         chat_container = ctk.CTkFrame(main_frame, corner_radius=10)
         chat_container.grid(row=2, column=0, sticky="nsew", padx=10, pady=5)
         chat_container.grid_rowconfigure(0, weight=1)
         chat_container.grid_columnconfigure(0, weight=1)
-        
+
         self.chat = ctk.CTkTextbox(
             chat_container, wrap="word",
             font=ctk.CTkFont(family="Consolas", size=12), corner_radius=10,
@@ -194,12 +187,11 @@ class ChatUI:
             scrollbar_button_color=("#4a9eff", "#3b7ac7")
         )
         self.chat.grid(row=0, column=0, sticky="nsew", padx=2, pady=2)
-        
-        # Input area
+
         input_frame = ctk.CTkFrame(main_frame, fg_color="transparent")
         input_frame.grid(row=3, column=0, sticky="ew", padx=10, pady=(5, 10))
         input_frame.grid_columnconfigure(0, weight=1)
-        
+
         self.input = ctk.CTkTextbox(
             input_frame, height=60,
             font=ctk.CTkFont(family="Consolas", size=12), corner_radius=10,
@@ -209,7 +201,7 @@ class ChatUI:
         self.input.grid(row=0, column=0, sticky="ew", padx=(0, 10))
         self.input.bind("<Return>", self._on_enter)
         self.input.bind("<Shift-Return>", lambda e: None)
-        
+
         ctk.CTkButton(
             input_frame, text="Send ➤", command=self._send,
             width=90, height=60, corner_radius=10,
@@ -217,18 +209,18 @@ class ChatUI:
             fg_color=("#50fa7b", "#40c969"), hover_color=("#40c969", "#30b959"),
             text_color=("#000000", "#000000")
         ).grid(row=0, column=1)
-    
+
     def _on_enter(self, event):
         if not (event.state & 0x1):
             self._send()
             return "break"
-    
+
     def _send(self):
         text = self.input.get("0.0", "end").strip()
         if text:
             self.input.delete("0.0", "end")
             self.on_send(text)
-    
+
     def _load_files(self):
         files = filedialog.askopenfilenames(
             parent=self.root, title="Select documents",
@@ -245,43 +237,77 @@ class ChatUI:
         )
         if files:
             self.on_load_files(files)
-    
+
     def set_status(self, text: str, is_error: bool = False):
         color = ("#ff5555", "#ff5555") if is_error else ("#50fa7b", "#50fa7b")
         self.status.configure(text=text, text_color=color)
-    
+
     def update_doc_count(self, count: int):
         if count == 0:
             text, color = "📚 No documents", ("#888888", "#888888")
         else:
             text, color = f"📚 {count} doc{'s' if count > 1 else ''}", ("#50fa7b", "#50fa7b")
         self.doc_info.configure(text=text, text_color=color)
-    
+
     def add_message(self, sender: str, text: str, tag: str = ""):
         if self.chat.get("0.0", "end").strip():
             self.chat.insert("end", "\n")
         self.chat.insert("end", f"{sender}:\n{text}\n")
         self.chat.see("end")
-    
+
     def stream(self, text: str):
         self.chat.insert("end", text)
         self.chat.see("end")
-    
+
     def clear_chat(self):
         self.chat.delete("0.0", "end")
-    
+
     def set_enabled(self, enabled: bool):
         state = "normal" if enabled else "disabled"
         self.input.configure(state=state)
-    
+
     def focus_input(self):
         self.input.focus_set()
-    
+
     def update_sidebar(self, conversations: list, current_id: str):
         self.sidebar.update_conversations(conversations, current_id)
-    
+
     def load_messages(self, messages: list):
         self.clear_chat()
         for msg in messages:
             role = "You" if msg["role"] == "user" else "Assistant"
             self.add_message(role, msg["content"], msg["role"])
+
+    def _format_code_blocks(self, text: str) -> str:
+        """Format Python code blocks with visual styling."""
+        def format_block(match):
+            code = match.group(1)
+            return f"📝 CODE:\n{'─'*40}\n{code}\n{'─'*40}"
+
+        pattern = r'```python\n(.*?)\n```'
+        return re.sub(pattern, format_block, text, flags=re.DOTALL)
+
+    def prompt_file_save(self, filename: str, default_name: str) -> str:
+        """Prompt user to choose save location for generated file."""
+        from tkinter import filedialog
+
+        filepath = filedialog.asksaveasfilename(
+            title=f"Save {filename}",
+            defaultextension=os.path.splitext(default_name)[1],
+            initialfile=default_name,
+            filetypes=[
+                ("All files", "*.*"),
+                ("PDF files", "*.pdf"),
+                ("Word files", "*.docx"),
+                ("Excel files", "*.xlsx"),
+                ("PowerPoint files", "*.pptx"),
+                ("PNG images", "*.png"),
+                ("Text files", "*.txt"),
+            ]
+        )
+        return filepath
+
+    def show_code_status(self, status: str, icon: str = "⚡"):
+        """Show code execution status in chat."""
+        status_msg = f"{icon} {status}"
+        self.add_message("System", status_msg)
