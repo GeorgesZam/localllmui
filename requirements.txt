@@ -1,4 +1,6 @@
 # Core dependencies
+# Use pre-built CPU wheels to avoid compilation issues
+# For GPU support, install separately: pip install llama-cpp-python --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cuXX
 llama-cpp-python>=0.2.0
 sentence-transformers>=2.2.0
 numpy>=1.24.0
