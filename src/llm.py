@@ -288,7 +288,11 @@ Answer based on context. If not found, say so."""
             Generated tokens and execution results
         """
         try:
-            from code_executor import SandboxedCodeExecutor, CodeDetector
+            from code_executor import (
+                EnhancedSandboxedCodeExecutor,
+                CodeDetector,
+                ResourceLimits
+            )
         except ImportError:
             yield "Error: Code execution module not available."
             return
@@ -324,12 +328,17 @@ Answer based on context. If not found, say so."""
             yield "\n\nNo executable code found in response."
             return
 
-        # Execute each code block
-        executor = SandboxedCodeExecutor(
-            timeout=self._config.CODE_EXECUTION_TIMEOUT,
-            max_memory_mb=self._config.CODE_EXECUTION_MAX_MEMORY_MB
+        # Create executor with resource limits
+        resource_limits = ResourceLimits(
+            max_cpu_time=self._config.CODE_EXECUTION_TIMEOUT,
+            max_memory_mb=self._config.CODE_EXECUTION_MAX_MEMORY_MB,
+            allow_network=False
         )
 
+        executor = EnhancedSandboxedCodeExecutor(resource_limits)
+        self.code_executor = executor  # Store for UI access
+
+        # Execute each code block
         for i, code in enumerate(code_blocks, 1):
             yield f"\n\n⚡ Executing code block {i}/{len(code_blocks)}...\n"
 
@@ -337,6 +346,13 @@ Answer based on context. If not found, say so."""
 
             # Format and yield result
             yield self._format_execution_result(result)
+
+        # Notify about files ready for download
+        if executor.get_downloadable_files():
+            self.notify(Event('code_execution_files_ready', {
+                'files': [f.__dict__ for f in executor.get_downloadable_files()],
+                'executor': executor
+            }))
 
         # Store in history
         if full_response.strip():

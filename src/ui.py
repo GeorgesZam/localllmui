@@ -110,6 +110,145 @@ class Sidebar(ctk.CTkFrame):
             self.on_delete(conv_id)
 
 
+class FileDownloadManager(ctk.CTkToplevel):
+    """File download manager window (like ChatGPT)."""
+
+    def __init__(self, parent, files: list, on_download: Callable, on_close: Callable):
+        super().__init__(parent)
+
+        self.title("📁 Download Generated Files")
+        self.geometry("600x400")
+        self.transient(parent)
+        self.grab_set()
+
+        self.on_download = on_download
+        self.on_close = on_close
+
+        self._create_widgets(files)
+
+    def _create_widgets(self, files: list):
+        # Header
+        header = ctk.CTkFrame(self, height=60)
+        header.pack(fill="x", padx=10, pady=10)
+        header.pack_propagate(False)
+
+        ctk.CTkLabel(
+            header, text="📁 Files Ready for Download",
+            font=ctk.CTkFont(size=16, weight="bold")
+        ).pack(side="left", pady=10)
+
+        ctk.CTkButton(
+            header, text="✕", width=30, height=30,
+            command=self._close,
+            fg_color="transparent", hover_color=("#ff5555", "#cc4444")
+        ).pack(side="right", padx=10)
+
+        # Instructions
+        instructions = ctk.CTkLabel(
+            self,
+            text="Click a file to choose where to save it. Files will be deleted when you close this window.",
+            font=ctk.CTkFont(size=11),
+            text_color=("gray70", "gray50")
+        )
+        instructions.pack(pady=(0, 10))
+
+        # File list
+        scroll_frame = ctk.CTkScrollableFrame(self)
+        scroll_frame.pack(fill="both", expand=True, padx=10, pady=(0, 10))
+
+        for file_info in files:
+            self._create_file_item(scroll_frame, file_info)
+
+        # Footer with close button
+        footer = ctk.CTkFrame(self, height=50)
+        footer.pack(fill="x", padx=10, pady=(0, 10))
+        footer.pack_propagate(False)
+
+        ctk.CTkButton(
+            footer, text="Close (Files will be deleted)",
+            command=self._close,
+            fg_color=("#ff5555", "#cc4444"), hover_color=("#ff7777", "#dd5555")
+        ).pack(side="right", pady=10)
+
+    def _create_file_item(self, parent, file_info: dict):
+        """Create a file item with download button."""
+        item_frame = ctk.CTkFrame(
+            parent,
+            fg_color=("gray85", "gray25"),
+            corner_radius=8
+        )
+        item_frame.pack(fill="x", pady=5)
+
+        # File icon based on type
+        ext = os.path.splitext(file_info['filename'])[1].lower()
+        icons = {
+            '.pdf': '📕', '.docx': '📘', '.xlsx': '📗',
+            '.pptx': '📙', '.txt': '📄', '.csv': '📊',
+            '.png': '🖼️', '.jpg': '🖼️', '.jpeg': '🖼️',
+            '.json': '📋', '.html': '🌐'
+        }
+        icon = icons.get(ext, '📎')
+
+        # Icon and filename
+        left_frame = ctk.CTkFrame(item_frame, fg_color="transparent")
+        left_frame.pack(side="left", padx=10, pady=8)
+
+        ctk.CTkLabel(
+            left_frame, text=icon, font=ctk.CTkFont(size=24)
+        ).pack(side="left", padx=(0, 10))
+
+        text_frame = ctk.CTkFrame(left_frame, fg_color="transparent")
+        text_frame.pack(side="left")
+
+        ctk.CTkLabel(
+            text_frame,
+            text=file_info['filename'],
+            font=ctk.CTkFont(size=12, weight="bold"),
+            anchor="w"
+        ).pack(fill="x")
+
+        size_mb = file_info['size'] / (1024 * 1024)
+        size_str = f"{size_mb:.2f} MB" if size_mb > 1 else f"{file_info['size']} bytes"
+
+        ctk.CTkLabel(
+            text_frame,
+            text=f"{file_info['mime_type']} • {size_str}",
+            font=ctk.CTkFont(size=10),
+            text_color=("gray60", "gray40"),
+            anchor="w"
+        ).pack(fill="x")
+
+        # Download button
+        ctk.CTkButton(
+            item_frame,
+            text="⬇️ Download",
+            width=100, height=32,
+            command=lambda f=file_info: self._download_file(f),
+            fg_color=("#50fa7b", "#40c969"),
+            hover_color=("#40c969", "#30b959"),
+            text_color=("#000000", "#000000")
+        ).pack(side="right", padx=10, pady=8)
+
+    def _download_file(self, file_info: dict):
+        """Handle file download."""
+        destination = self.on_download(file_info)
+        if destination:
+            messagebox.showinfo(
+                "Download Complete",
+                f"File saved to:\n{destination}"
+            )
+        else:
+            messagebox.showwarning(
+                "Download Cancelled",
+                "File download was cancelled."
+            )
+
+    def _close(self):
+        """Close the download manager."""
+        self.on_close()
+        self.destroy()
+
+
 class ChatUI:
     def __init__(self, root: ctk.CTk, on_send, on_clear, on_load_files,
                  on_new_chat, on_select_chat, on_delete_chat):
@@ -120,6 +259,11 @@ class ChatUI:
         self.on_new_chat = on_new_chat
         self.on_select_chat = on_select_chat
         self.on_delete_chat = on_delete_chat
+
+        # Code execution state
+        self._code_executor = None
+        self._pending_files = []
+        self._download_manager_open = False
 
         self._setup_window()
         self._create_widgets()
@@ -311,3 +455,88 @@ class ChatUI:
         """Show code execution status in chat."""
         status_msg = f"{icon} {status}"
         self.add_message("System", status_msg)
+
+    def handle_code_execution_complete(self, result, executor):
+        """
+        Handle completion of code execution with file downloads.
+
+        Args:
+            result: ExecutionResult from code execution
+            executor: The code executor instance
+        """
+        self.add_message("System", format_code_output(result))
+
+        # If files were created, offer downloads
+        if result.files_created:
+            self._pending_files = result.files_created
+            self._code_executor = executor
+
+            # Add download prompt
+            self.add_message("System",
+                f"\n💾 {len(result.files_created)} file(s) ready for download!")
+            self.add_message("System",
+                "Click 'Download Files' to save them to your computer.")
+
+            # Show download button
+            self._show_download_button()
+
+    def _show_download_button(self):
+        """Show download files button in chat."""
+        # Insert a clickable download indicator
+        self.chat.insert("end", "\n")
+        self.chat.see("end")
+
+    def open_download_manager(self):
+        """Open the file download manager window."""
+        if not self._pending_files or self._download_manager_open:
+            return
+
+        self._download_manager_open = True
+
+        def on_download(file_info):
+            """Handle file download."""
+            from tkinter import filedialog
+
+            ext = os.path.splitext(file_info['filename'])[1]
+            filepath = filedialog.asksaveasfilename(
+                title=f"Save {file_info['filename']}",
+                defaultextension=ext,
+                initialfile=file_info['filename'],
+                filetypes=[
+                    ("All files", "*.*"),
+                    (f"{file_info['filename']} files", f"*{ext}"),
+                ]
+            )
+
+            if filepath:
+                if self._code_executor and self._code_executor.save_file_to(
+                    file_info['filename'], filepath
+                ):
+                    return filepath
+            return None
+
+        def on_close():
+            """Handle download manager close."""
+            self._download_manager_open = False
+            # Cleanup temp files
+            if self._code_executor:
+                self._code_executor.cleanup_temp_files()
+            self._pending_files = []
+            self.add_message("System", "🗑️ Temporary files cleaned up.")
+
+        FileDownloadManager(
+            self.root,
+            self._pending_files,
+            on_download,
+            on_close
+        )
+
+    def set_code_executor(self, executor):
+        """Set the current code executor for file management."""
+        self._code_executor = executor
+
+
+def format_code_output(result) -> str:
+    """Format execution result for display (import from code_executor)."""
+    from code_executor import format_code_output as _format
+    return _format(result)

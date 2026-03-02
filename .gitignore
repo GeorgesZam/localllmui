@@ -21,7 +21,6 @@ env/
 .coverage
 htmlcov/
 .tox/
-tests/
 test_*.py
 *_test.py
 

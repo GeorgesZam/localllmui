@@ -26,3 +26,6 @@ pandas>=2.0.0
 # Code execution - PDF generation and visualization
 reportlab>=4.0.0
 matplotlib>=3.7.0
+
+# System resource monitoring for sandbox
+psutil>=5.9.0

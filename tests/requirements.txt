@@ -1,0 +1,11 @@
+# Test dependencies for Local LLM UI
+
+# Core testing framework
+pytest>=7.0.0
+pytest-cov>=4.0.0
+
+# Mocking and testing utilities
+pytest-mock>=3.10.0
+
+# Coverage reporting
+coverage[toml]>=7.0.0
