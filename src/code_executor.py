@@ -107,9 +107,24 @@ class ResourceMonitor:
         self._peak_memory_mb = 0
         self._cpu_time = 0.0
         self._disk_write_mb = 0
+        self._psutil_available = self._check_psutil()
+
+    def _check_psutil(self) -> bool:
+        """Check if psutil is available and has required attributes."""
+        try:
+            import psutil
+            # Test if Process has io_counters
+            test_process = psutil.Process()
+            has_io_counters = hasattr(test_process, 'io_counters')
+            return has_io_counters
+        except (ImportError, Exception):
+            return False
 
     def start(self) -> None:
         """Start monitoring in background thread."""
+        if not self._psutil_available:
+            return  # Skip monitoring if psutil not available
+
         self._monitoring = True
         self._thread = threading.Thread(target=self._monitor_loop, daemon=True)
         self._thread.start()
@@ -117,7 +132,7 @@ class ResourceMonitor:
     def stop(self) -> Dict[str, Any]:
         """Stop monitoring and return stats."""
         self._monitoring = False
-        if self._thread:
+        if self._thread and self._psutil_available:
             self._thread.join(timeout=2)
         return {
             'peak_memory_mb': self._peak_memory_mb,
@@ -154,8 +169,8 @@ class ResourceMonitor:
 
                 time.sleep(self.check_interval)
 
-        except ImportError:
-            # psutil not available, skip monitoring
+        except Exception:
+            # Any error during monitoring - silently stop
             pass
 
 
@@ -278,6 +293,16 @@ class EnhancedSandboxedCodeExecutor:
             with open(script_path, 'w', encoding='utf-8') as f:
                 f.write(exec_script)
 
+            # Debug: Check if script was written correctly
+            if os.environ.get('DEBUG_SANDBOX'):
+                print(f"[DEBUG] Script written to: {script_path}")
+                with open(script_path, 'r') as f:
+                    lines = f.readlines()
+                    print(f"[DEBUG] Script has {len(lines)} lines")
+                    # Show lines around os.chdir
+                    for i, line in enumerate(lines[40:50], 41):
+                        print(f"[DEBUG] Line {i}: {line.rstrip()}")
+
             # Create wrapper script for resource limits
             wrapper_path = self._create_wrapper_script(script_path)
 
@@ -335,6 +360,14 @@ class EnhancedSandboxedCodeExecutor:
 
     def _prepare_exec_script(self, user_code: str) -> str:
         """Prepare execution script with enhanced sandboxing."""
+        temp_dir = self.temp_dir
+        max_cpu_time = self.limits.max_cpu_time
+        max_memory_mb = self.limits.max_memory_mb
+        max_processes = self.limits.max_processes
+        max_open_files = self.limits.max_open_files
+        max_file_size_mb = self.limits.max_file_size_mb
+        allow_network = str(self.limits.allow_network).lower()
+
         return f'''
 import sys
 import io
@@ -344,21 +377,27 @@ import signal
 # Set resource limits
 def set_limits():
     import resource
+    import platform
     try:
         # CPU time limit
-        resource.setrlimit(resource.RLIMIT_CPU, ({self.limits.max_cpu_time}, {self.limits.max_cpu_time}))
-        # Memory limit
-        memory_bytes = {self.limits.max_memory_mb} * 1024 * 1024
-        resource.setrlimit(resource.RLIMIT_AS, (memory_bytes, memory_bytes))
+        resource.setrlimit(resource.RLIMIT_CPU, ({max_cpu_time}, {max_cpu_time}))
+
+        # Memory limit - skip on macOS as RLIMIT_AS doesn't work the same way
+        if platform.system() != 'Darwin':
+            memory_bytes = {max_memory_mb} * 1024 * 1024
+            resource.setrlimit(resource.RLIMIT_AS, (memory_bytes, memory_bytes))
+
         # Max processes
-        resource.setrlimit(resource.RLIMIT_NPROC, ({self.limits.max_processes}, {self.limits.max_processes}))
+        resource.setrlimit(resource.RLIMIT_NPROC, ({max_processes}, {max_processes}))
         # Max open files
-        resource.setrlimit(resource.RLIMIT_NOFILE, ({self.limits.max_open_files}, {self.limits.max_open_files}))
+        resource.setrlimit(resource.RLIMIT_NOFILE, ({max_open_files}, {max_open_files}))
         # Max file size
-        file_size_bytes = {self.limits.max_file_size_mb} * 1024 * 1024
+        file_size_bytes = {max_file_size_mb} * 1024 * 1024
         resource.setrlimit(resource.RLIMIT_FSIZE, (file_size_bytes, file_size_bytes))
     except (ValueError, resource.error):
         pass  # Limits not supported on this platform
+    except Exception:
+        pass  # Any error setting limits - continue without them
 
 # Set limits on startup
 set_limits()
@@ -371,11 +410,11 @@ sys.stderr = io.StringIO()
 
 # Change to temp directory
 import os
-os.chdir(r"{self.temp_dir}")
+os.chdir(r"{temp_dir}")
 
 # Restrict filesystem access
 original_open = open
-_safe_paths = {{r"{self.temp_dir}", "/dev/null", "/dev/urandom"}}
+_safe_paths = {{r"{temp_dir}", "/dev/null", "/dev/urandom"}}
 
 def safe_open(file, mode='r', *args, **kwargs):
     # Check if trying to open outside safe paths
@@ -398,7 +437,7 @@ def block_network():
             raise OSError("Network access is blocked in sandbox")
     socket.socket = BlockedSocket
 
-if not {str(self.limits.allow_network).lower()}:
+if not {allow_network}:
     try:
         block_network()
     except:
@@ -427,7 +466,7 @@ def timeout_handler(signum, frame):
     raise TimeoutError("Execution time limit exceeded")
 
 signal.signal(signal.SIGALRM, timeout_handler)
-signal.alarm({self.limits.max_cpu_time})
+signal.alarm({max_cpu_time})
 
 # Execute user code
 try:
@@ -495,10 +534,13 @@ exec "{sys.executable}" "{script_path}"
                 start_new_session=True,  # Create new process group
             )
 
-            # Start resource monitoring
+            # Start resource monitoring (only if psutil is available)
+            self._monitor = None
             try:
-                self._monitor = ResourceMonitor(process.pid)
-                self._monitor.start()
+                monitor = ResourceMonitor(process.pid)
+                if monitor._psutil_available:
+                    self._monitor = monitor
+                    self._monitor.start()
             except Exception:
                 pass  # Monitoring not critical
 

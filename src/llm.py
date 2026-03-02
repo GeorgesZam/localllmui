@@ -70,6 +70,10 @@ class LLMEngine(Observable, metaclass=SingletonMeta):
         self.code_executor = None
         self.code_execution_enabled = self._config.CODE_EXECUTION_ENABLED
 
+        # Skills integration
+        self.skills_executor = None
+        self._enabled_skills_content = ""
+
         # Statistics
         self._current_stats = GenerationStats()
 
@@ -170,21 +174,46 @@ class LLMEngine(Observable, metaclass=SingletonMeta):
             traceback.print_exc()
             return False
 
+    def set_skills_executor(self, skills_executor):
+        """Set the skills executor for prompt enhancement."""
+        self.skills_executor = skills_executor
+
+    def update_skills_content(self, skills_manager):
+        """Update the skills content from the skills manager."""
+        if self.skills_executor and skills_manager:
+            base_prompt = self._config.SYSTEM_PROMPT
+            enhanced_prompt, skill_names = self.skills_executor.apply_skills_to_prompt(
+                "", base_prompt
+            )
+            self._enabled_skills_content = enhanced_prompt.replace(base_prompt, "").strip()
+        else:
+            self._enabled_skills_content = ""
+
     def _build_prompt(self, message: str, rag_context: str = "",
                       enable_code: bool = False) -> str:
         """Build prompt for the LLM."""
+        # Build base system prompt
+        base_system = self._config.SYSTEM_PROMPT
+
+        # Add skills content if available
+        if self._enabled_skills_content:
+            system = f"{base_system}\n\n{self._enabled_skills_content}"
+        else:
+            system = base_system
+
+        # Modify based on mode
         if enable_code:
             system = self._config.CODE_EXECUTION_SYSTEM_PROMPT
+            if self._enabled_skills_content:
+                system = f"{self._config.CODE_EXECUTION_SYSTEM_PROMPT}\n\n{self._enabled_skills_content}"
         elif rag_context:
-            system = f"""{self._config.SYSTEM_PROMPT}
+            system = f"""{system}
 
 === CONTEXT ===
 {rag_context}
 === END ===
 
 Answer based on context. If not found, say so."""
-        else:
-            system = self._config.SYSTEM_PROMPT
 
         prompt = f"<|im_start|>system\n{system}<|im_end|>\n"
 

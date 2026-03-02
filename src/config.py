@@ -53,9 +53,9 @@ Answer in the same language as the user."""
         # RAG Configuration
         self.rag_enabled = True
         self.rag_folder = "data"
-        self.rag_chunk_size = 384
-        self.rag_chunk_overlap = 50
-        self.rag_top_k = 3
+        self.rag_chunk_size = 256  # Reduced from 384 to fit context window
+        self.rag_chunk_overlap = 30  # Reduced from 50
+        self.rag_top_k = 2  # Reduced from 3 to leave room for prompt/response
         self.rag_min_score = 0.3
         self.rag_show_sources = True
 

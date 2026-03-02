@@ -11,6 +11,7 @@ from tkinter import filedialog, messagebox
 from llm import LLMEngine
 from conversations import ConversationManager
 from ui import ChatUI
+from skills_manager import SkillsManager, SkillExecutor
 import config
 
 
@@ -38,6 +39,11 @@ class App(ctk.CTk):
         self.message_queue = queue.Queue()
         self.is_processing = False
 
+        # Skills system
+        self.skills_manager = SkillsManager()
+        self.skills_executor = SkillExecutor(self.skills_manager)
+        self.llm.set_skills_executor(self.skills_executor)
+
         self._create_ui()
         self._initialize_models()
 
@@ -49,8 +55,15 @@ class App(ctk.CTk):
             on_load_files=self._on_load_files,
             on_new_chat=self._on_new_chat,
             on_select_chat=self._on_select_chat,
-            on_delete_chat=self._on_delete_chat
+            on_delete_chat=self._on_delete_chat,
+            skills_manager=self.skills_manager,
+            on_skill_toggle=self._on_skill_toggle
         )
+
+    def _on_skill_toggle(self, skill_id: str, enabled: bool):
+        """Handle skill toggle event - update LLM with new skills."""
+        if self.llm.is_ready:
+            self.llm.update_skills_content(self.skills_manager)
 
     def _initialize_models(self):
         def init():
@@ -72,6 +85,7 @@ class App(ctk.CTk):
                     self.ui.set_status(data, is_error=False)
 
                 elif msg_type == "initialized":
+                    self.llm.update_skills_content(self.skills_manager)
                     self.ui.set_status("Ready", is_error=False)
                     self.ui.set_enabled(True)
                     self.ui.focus_input()

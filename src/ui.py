@@ -1,8 +1,8 @@
 import os
 import re
 import customtkinter as ctk
-from tkinter import filedialog, messagebox
-from typing import Callable
+from tkinter import filedialog, messagebox, Tk
+from typing import Callable, Optional
 import config
 
 ctk.set_appearance_mode("dark")
@@ -251,7 +251,8 @@ class FileDownloadManager(ctk.CTkToplevel):
 
 class ChatUI:
     def __init__(self, root: ctk.CTk, on_send, on_clear, on_load_files,
-                 on_new_chat, on_select_chat, on_delete_chat):
+                 on_new_chat, on_select_chat, on_delete_chat, skills_manager=None,
+                 on_skill_toggle=None):
         self.root = root
         self.on_send = on_send
         self.on_clear = on_clear
@@ -259,11 +260,17 @@ class ChatUI:
         self.on_new_chat = on_new_chat
         self.on_select_chat = on_select_chat
         self.on_delete_chat = on_delete_chat
+        self.on_skill_toggle = on_skill_toggle
 
         # Code execution state
         self._code_executor = None
         self._pending_files = []
         self._download_manager_open = False
+
+        # Skills management
+        from skills_manager import SkillsManager
+        self.skills_manager = skills_manager if skills_manager else SkillsManager()
+        self._skills_window = None
 
         self._setup_window()
         self._create_widgets()
@@ -313,6 +320,13 @@ class ChatUI:
             width=100, height=32, corner_radius=8,
             font=ctk.CTkFont(size=12, weight="bold"),
             fg_color=("#ff5555", "#cc4444"), hover_color=("#ff7777", "#dd5555")
+        ).pack(side="left", padx=(0, 10))
+
+        ctk.CTkButton(
+            toolbar, text="🎯 Skills", command=self._open_skills_window,
+            width=100, height=32, corner_radius=8,
+            font=ctk.CTkFont(size=12, weight="bold"),
+            fg_color=("#9b59b6", "#7d3c98"), hover_color=("#8e44ad", "#6c3483")
         ).pack(side="left")
 
         self.doc_info = ctk.CTkLabel(toolbar, text="📚 No documents",
@@ -381,6 +395,24 @@ class ChatUI:
         )
         if files:
             self.on_load_files(files)
+
+    def _open_skills_window(self):
+        """Open the skills management window - single instance."""
+        SkillsWindow(
+            self.root,
+            self.skills_manager,
+            on_skill_toggle=self._on_skill_toggle
+        )
+
+    def _on_skill_toggle(self, skill_id: str, enabled: bool):
+        """Handle skill toggle event."""
+        status = "enabled" if enabled else "disabled"
+        self.add_message("System", f"🎯 Skill '{skill_id}' {status}")
+        self.skills_manager.save_config()
+
+        # Notify app about skill toggle
+        if self.on_skill_toggle:
+            self.on_skill_toggle(skill_id, enabled)
 
     def set_status(self, text: str, is_error: bool = False):
         color = ("#ff5555", "#ff5555") if is_error else ("#50fa7b", "#50fa7b")
@@ -535,8 +567,274 @@ class ChatUI:
         """Set the current code executor for file management."""
         self._code_executor = executor
 
+    def get_skills_manager(self):
+        """Get the skills manager instance."""
+        return self.skills_manager
+
+    def get_enabled_skills(self):
+        """Get list of enabled skill IDs."""
+        return [
+            skill_id for skill_id, skill in self.skills_manager.skills.items()
+            if skill.enabled
+        ]
+
 
 def format_code_output(result) -> str:
     """Format execution result for display (import from code_executor)."""
     from code_executor import format_code_output as _format
     return _format(result)
+
+
+class SkillsWindow(ctk.CTkToplevel):
+    """Skills management window - fixed closing."""
+
+    _open_instance = None  # Class variable to track open window
+
+    def __init__(self, parent, skills_manager, on_skill_toggle=None):
+        # Prevent multiple instances
+        if SkillsWindow._open_instance is not None:
+            try:
+                if SkillsWindow._open_instance.winfo_exists():
+                    SkillsWindow._open_instance.lift()
+                    SkillsWindow._open_instance.focus()
+                    return
+            except:
+                SkillsWindow._open_instance = None
+
+        super().__init__(parent)
+        SkillsWindow._open_instance = self
+
+        self.title("🎯 Skills Manager")
+        self.geometry("700x600")
+        self.skills_manager = skills_manager
+        self.on_skill_toggle = on_skill_toggle
+
+        print(f"[Skills] Creating window with {len(skills_manager.skills) if skills_manager else 0} skills")
+
+        # Handle close properly
+        self.protocol("WM_DELETE_WINDOW", self._close_window)
+
+        try:
+            self._create_widgets()
+            print("[Skills] Widgets created successfully")
+        except Exception as e:
+            print(f"[Skills] ERROR creating widgets: {e}")
+            import traceback
+            traceback.print_exc()
+
+    def _close_window(self):
+        """Close the window."""
+        SkillsWindow._open_instance = None
+        self.destroy()
+
+    def _create_widgets(self):
+        # Main container
+        main = ctk.CTkFrame(self, fg_color=("#1a1a2e", "#0f0f1a"))
+        main.pack(fill="both", expand=True, padx=1, pady=1)
+
+        # Header
+        header = ctk.CTkFrame(main, height=70, fg_color=("#252535", "#1a1a25"))
+        header.pack(fill="x")
+        header.pack_propagate(False)
+
+        ctk.CTkLabel(
+            header,
+            text="🎯 Skills Manager",
+            font=ctk.CTkFont(size=20, weight="bold"),
+            text_color="#4a9eff"
+        ).pack(side="left", padx=20, pady=15)
+
+        # Close button
+        ctk.CTkButton(
+            header,
+            text="✕ CLOSE",
+            width=100,
+            height=35,
+            command=self._close_window,
+            fg_color=("#ff5555", "#cc4444"),
+            hover_color=("#ff7777", "#dd5555"),
+            font=ctk.CTkFont(size=12, weight="bold")
+        ).pack(side="right", padx=15, pady=15)
+
+        # Skills list
+        list_frame = ctk.CTkFrame(main, fg_color="transparent")
+        list_frame.pack(fill="both", expand=True, padx=15, pady=(10, 10))
+
+        self.skills_container = ctk.CTkScrollableFrame(
+            list_frame,
+            fg_color="transparent",
+            scrollbar_button_color=("#4a9eff", "#3b7ac7"),
+            label_text="Available Skills"
+        )
+        self.skills_container.pack(fill="both", expand=True)
+
+        print(f"[Skills] Loading skills... Found {len(self.skills_manager.skills)} skills")
+        self._load_skills()
+
+        # Bottom bar with Add button - pack BEFORE skills list to ensure it's visible
+        bottom = ctk.CTkFrame(main, height=60, fg_color=("#252535", "#1a1a25"))
+        bottom.pack(fill="x", side="bottom", before=list_frame)
+        bottom.pack_propagate(False)
+
+        ctk.CTkButton(
+            bottom,
+            text="➕ ADD NEW SKILL",
+            width=160,
+            height=38,
+            command=self._open_add_skill_dialog,
+            fg_color=("#50fa7b", "#40c969"),
+            hover_color=("#40c969", "#30b959"),
+            text_color=("#000000", "#000000"),
+            font=ctk.CTkFont(size=12, weight="bold")
+        ).pack(side="left", padx=20, pady=10)
+
+        ctk.CTkLabel(
+            bottom,
+            text=f"{len(self.skills_manager.skills)} skills loaded",
+            font=ctk.CTkFont(size=11),
+            text_color=("#888888", "#666666")
+        ).pack(side="right", padx=20, pady=10)
+
+        print("[Skills] Window created successfully")
+
+    def _load_skills(self):
+        """Load and display all skills."""
+        for widget in self.skills_container.winfo_children():
+            widget.destroy()
+
+        for skill in self.skills_manager.get_all_skills():
+            self._create_skill_item(skill)
+
+    def _create_skill_item(self, skill):
+        """Create a skill item."""
+        bg = ("#2a3a2a", "#1a2a1a") if skill.enabled else ("#252535", "#1a1a25")
+        text_col = "#ffffff" if skill.enabled else "#aaaaaa"
+
+        item = ctk.CTkFrame(self.skills_container, fg_color=bg, corner_radius=8)
+        item.pack(fill="x", pady=4)
+
+        row = ctk.CTkFrame(item, fg_color="transparent")
+        row.pack(fill="x", padx=12, pady=10)
+
+        ctk.CTkLabel(row, text=skill.icon, font=ctk.CTkFont(size=18)).pack(side="left", padx=(0, 10))
+
+        ctk.CTkLabel(
+            row,
+            text=skill.name,
+            font=ctk.CTkFont(size=13, weight="bold"),
+            text_color=text_col
+        ).pack(side="left")
+
+        toggle = ctk.CTkSwitch(
+            row,
+            text="",
+            width=44,
+            progress_color=("#50fa7b", "#40c969") if skill.enabled else ("#4a9eff", "#3b7ac7"),
+            button_color=("#50fa7b", "#40c969") if skill.enabled else ("#4a9eff", "#3b7ac7"),
+            fg_color="transparent"
+        )
+        toggle.pack(side="right")
+        if skill.enabled:
+            toggle.select()
+
+        def toggle_skill():
+            is_on = toggle.get()
+            skill.enabled = is_on
+            self.skills_manager.save_config()
+            if self.on_skill_toggle:
+                self.on_skill_toggle(skill.id, is_on)
+
+        toggle.configure(command=toggle_skill)
+
+    def _open_add_skill_dialog(self):
+        """Open dialog to add a new custom skill."""
+        dialog = ctk.CTkToplevel(self)
+        dialog.title("Add New Skill")
+        dialog.geometry("500x400")
+        dialog.transient(self)
+        dialog.grab_set()
+
+        # Form
+        form = ctk.CTkFrame(dialog, fg_color=("#1a1a2e", "#0f0f1a"))
+        form.pack(fill="both", expand=True, padx=1, pady=1)
+
+        ctk.CTkLabel(
+            form,
+            text="➕ Create Custom Skill",
+            font=ctk.CTkFont(size=18, weight="bold"),
+            text_color="#50fa7b"
+        ).pack(pady=15)
+
+        # Name input
+        ctk.CTkLabel(form, text="Skill Name:", anchor="w").pack(fill="x", padx=20, pady=(10, 0))
+        name_entry = ctk.CTkEntry(form, height=36, placeholder_text="e.g., Data Analysis")
+        name_entry.pack(fill="x", padx=20, pady=(5, 10))
+
+        # Description input
+        ctk.CTkLabel(form, text="Description:", anchor="w").pack(fill="x", padx=20)
+        desc_entry = ctk.CTkEntry(form, height=36, placeholder_text="What does this skill do?")
+        desc_entry.pack(fill="x", padx=20, pady=(5, 10))
+
+        # Content input
+        ctk.CTkLabel(form, text="Instructions/Content:", anchor="w").pack(fill="x", padx=20)
+        content_text = ctk.CTkTextbox(form, height=150)
+        content_text.pack(fill="x", padx=20, pady=(5, 10))
+
+        # Buttons
+        btn_frame = ctk.CTkFrame(form, fg_color="transparent")
+        btn_frame.pack(fill="x", padx=20, pady=15)
+
+        def save_skill():
+            name = name_entry.get().strip()
+            desc = desc_entry.get().strip()
+            content = content_text.get("0.0", "end").strip()
+
+            if not name:
+                messagebox.showerror("Error", "Please enter a skill name")
+                return
+
+            if not content:
+                messagebox.showerror("Error", "Please enter skill content")
+                return
+
+            # Create skill file
+            import os
+            from skills_manager import SkillInfo
+
+            skill_id = name.lower().replace(" ", "_").replace("-", "_")
+            filename = f"skills/skill_{skill_id}.md"
+
+            # Write skill file
+            os.makedirs("skills", exist_ok=True)
+            with open(filename, 'w') as f:
+                f.write(f"# {name}\n")
+                f.write(f"## Description:\n{desc}\n\n")
+                f.write(f"## Instructions:\n{content}\n")
+
+            # Reload skills
+            self.skills_manager._load_skills()
+            self._load_skills()
+
+            messagebox.showinfo("Success", f"Skill '{name}' created!")
+            dialog.destroy()
+
+        def cancel():
+            dialog.destroy()
+
+        ctk.CTkButton(
+            btn_frame,
+            text="Cancel",
+            width=100,
+            command=cancel,
+            fg_color=("#666666", "#444444")
+        ).pack(side="right", padx=5)
+
+        ctk.CTkButton(
+            btn_frame,
+            text="💾 Save Skill",
+            width=120,
+            command=save_skill,
+            fg_color=("#50fa7b", "#40c969"),
+            hover_color=("#40c969", "#30b959"),
+            text_color=("#000000", "#000000")
+        ).pack(side="right")

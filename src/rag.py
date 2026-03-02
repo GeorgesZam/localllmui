@@ -443,7 +443,18 @@ class RAG:
         self.documents = all_chunks
         self._save_index(log)
 
-    def search(self, query: str, top_k: int = None) -> Tuple[str, List[dict]]:
+    def search(self, query: str, top_k: int = None, max_context_chars: int = 1200) -> Tuple[str, List[dict]]:
+        """
+        Search for relevant documents with context size limit.
+
+        Args:
+            query: Search query
+            top_k: Number of results to return
+            max_context_chars: Maximum characters for context (to avoid context window overflow)
+
+        Returns:
+            Tuple of (context string, list of sources)
+        """
         if not self.documents:
             self.last_sources = []
             return "", []
@@ -483,6 +494,19 @@ class RAG:
         context_parts = []
 
         for i, (doc, score) in enumerate(results, 1):
+            content = doc["content"]
+
+            # Calculate header length
+            header = f"[Document {i} - {doc['source']}]\n"
+            header_len = len(header)
+
+            # Reserve space for header and "..."
+            max_content_len = max_context_chars // len(results) - header_len - 10
+
+            # Truncate if needed
+            if len(content) > max_content_len:
+                content = content[:max_content_len] + "..."
+
             self.last_sources.append({
                 "index": i,
                 "source": doc["source"],
@@ -490,7 +514,8 @@ class RAG:
                 "score": score,
                 "preview": doc["content"][:200] + "..." if len(doc["content"]) > 200 else doc["content"]
             })
-            context_parts.append(f"[Document {i} - {doc['source']}]\n{doc['content']}")
+
+            context_parts.append(f"{header}{content}")
 
         return "\n\n".join(context_parts), self.last_sources
 
