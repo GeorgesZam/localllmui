@@ -48,7 +48,7 @@ If the answer is not found in the context, say "I don't have this information in
 Be concise and specific. Quote relevant parts when possible.
 Answer in the same language as the user."""
 
-        self.stop_tokens = ["<|im_end|>", "<end_of_turn>", ""]
+        self.stop_tokens = ["<|im_end|>", "<end_of_turn>"]
 
         # RAG Configuration
         self.rag_enabled = True

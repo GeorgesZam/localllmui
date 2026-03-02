@@ -10,7 +10,7 @@ This module provides base implementations of common design patterns:
 """
 
 from .singleton import Singleton, SingletonMeta
-from .observer import Observer, Observable, Event
+from .observer import Observer, Observable, Event, StateEvent, ProgressEvent
 from .strategy import Strategy, StrategyContext
 from .factory import Factory, FactoryItem
 from .command import Command, CommandInvoker, CommandResult
@@ -21,6 +21,8 @@ __all__ = [
     'Observer',
     'Observable',
     'Event',
+    'StateEvent',
+    'ProgressEvent',
     'Strategy',
     'StrategyContext',
     'Factory',
