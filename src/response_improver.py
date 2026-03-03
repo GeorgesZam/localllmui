@@ -123,7 +123,7 @@ class ResponseImprover:
         # Combiner les améliorations
         if improvements:
             improved = "\n\n".join(improvements)
-            return f"{original_response}\n\n💡 Suggestions to get better answers:\n{improved}"
+            return f"{original_response}\n\n Suggestions to get better answers:\n{improved}"
 
         return original_response
 
@@ -153,16 +153,16 @@ class ResponseImprover:
         """Amélioration générale pour les questions."""
         # Identifier les catégories communes
         if "python" in question.lower():
-            return "💡 For Python questions, include your version and error messages if applicable."
+            return " For Python questions, include your version and error messages if applicable."
 
         if "config" in question.lower() or "setting" in question.lower():
-            return "💡 For configuration questions, mention your platform and what you're trying to achieve."
+            return " For configuration questions, mention your platform and what you're trying to achieve."
 
         if "install" in question.lower():
-            return "💡 For installation questions, include your operating system and any error messages."
+            return " For installation questions, include your operating system and any error messages."
 
         if not self.rag_system:
-            return "💡 Consider adding relevant documents to improve responses."
+            return " Consider adding relevant documents to improve responses."
 
         return None
 
@@ -172,15 +172,15 @@ class ResponseImprover:
 
         # Questions techniques
         if any(word in question_lower for word in ["how", "why", "what", "which"]):
-            return "💡 Provide examples of what you've tried or what's not working."
+            return " Provide examples of what you've tried or what's not working."
 
         # Questions "Do I need..."
         if "do i need" in question_lower or "should i" in question_lower:
-            return "💡 Describe your use case or goal for better recommendations."
+            return " Describe your use case or goal for better recommendations."
 
         # Questions "Is it possible..."
         if "is it possible" in question_lower:
-            return "💡 Describe your specific requirements or constraints."
+            return " Describe your specific requirements or constraints."
 
         return None
 
