@@ -95,6 +95,8 @@ Each test file corresponds to a source module:
 - `test_config.py` → `src/config.py`
 - `test_document_processor.py` → `main.py:DocumentProcessor`
 - `test_vector_store.py` → `main.py:VectorStore`
+- `test_rag.py` → `src/rag.py` (RAG search, embedding model, document parser)
+- `test_rag_context_limit.py` → `src/rag.py` (Context size limit testing)
 
 ### Functional Tests (`test_*.py` in `functional/`)
 Organized by workflow:
@@ -188,3 +190,20 @@ Tests are configured to run in CI/CD via GitHub Actions (`.github/workflows/buil
 - File operations use temporary directories
 - Tests are designed to run quickly and in parallel when possible
 - Configuration tests verify values without requiring running application
+
+## Conversation Isolation Tests
+
+The RAG module includes conversation isolation via the `allowed_sources` parameter:
+
+### Behavior
+- `allowed_sources=None`: Search all documents (default, backward compatible)
+- `allowed_sources=[]`: Search no documents (new conversation with no docs)
+- `allowed_sources=["file1.txt"]`: Search only in specified documents
+
+### Test Coverage
+- `TestRAGConversationIsolation` class in `tests/unit/test_rag.py`
+- Tests filtering by single/multiple sources
+- Tests empty list returns no results
+- Tests None searches all documents
+
+This ensures that documents from one conversation don't leak into other conversations.

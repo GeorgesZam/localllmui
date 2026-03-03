@@ -252,7 +252,7 @@ class FileDownloadManager(ctk.CTkToplevel):
 class ChatUI:
     def __init__(self, root: ctk.CTk, on_send, on_clear, on_load_files,
                  on_new_chat, on_select_chat, on_delete_chat, skills_manager=None,
-                 on_skill_toggle=None):
+                 on_skill_toggle=None, on_open_model_catalog=None, model_manager=None):
         self.root = root
         self.on_send = on_send
         self.on_clear = on_clear
@@ -261,6 +261,8 @@ class ChatUI:
         self.on_select_chat = on_select_chat
         self.on_delete_chat = on_delete_chat
         self.on_skill_toggle = on_skill_toggle
+        self.on_open_model_catalog = on_open_model_catalog
+        self.model_manager = model_manager
 
         # Code execution state
         self._code_executor = None
@@ -327,6 +329,13 @@ class ChatUI:
             width=100, height=32, corner_radius=8,
             font=ctk.CTkFont(size=12, weight="bold"),
             fg_color=("#9b59b6", "#7d3c98"), hover_color=("#8e44ad", "#6c3483")
+        ).pack(side="left", padx=(0, 10))
+
+        ctk.CTkButton(
+            toolbar, text="🤖 Models", command=self._open_model_catalog,
+            width=100, height=32, corner_radius=8,
+            font=ctk.CTkFont(size=12, weight="bold"),
+            fg_color=("#e67e22", "#d35400"), hover_color=("#d35400", "#ba4a00")
         ).pack(side="left")
 
         self.doc_info = ctk.CTkLabel(toolbar, text="📚 No documents",
@@ -403,6 +412,11 @@ class ChatUI:
             self.skills_manager,
             on_skill_toggle=self._on_skill_toggle
         )
+
+    def _open_model_catalog(self):
+        """Open the model catalog window."""
+        if self.on_open_model_catalog:
+            self.on_open_model_catalog()
 
     def _on_skill_toggle(self, skill_id: str, enabled: bool):
         """Handle skill toggle event."""
@@ -586,255 +600,600 @@ def format_code_output(result) -> str:
 
 
 class SkillsWindow(ctk.CTkToplevel):
-    """Skills management window - fixed closing."""
+    """Simple Skills window."""
 
-    _open_instance = None  # Class variable to track open window
+    _instance = None
 
     def __init__(self, parent, skills_manager, on_skill_toggle=None):
-        # Prevent multiple instances
-        if SkillsWindow._open_instance is not None:
+        # Close existing if any
+        if SkillsWindow._instance:
             try:
-                if SkillsWindow._open_instance.winfo_exists():
-                    SkillsWindow._open_instance.lift()
-                    SkillsWindow._open_instance.focus()
-                    return
+                SkillsWindow._instance.destroy()
             except:
-                SkillsWindow._open_instance = None
+                pass
 
         super().__init__(parent)
-        SkillsWindow._open_instance = self
+        SkillsWindow._instance = self
 
-        self.title("🎯 Skills Manager")
-        self.geometry("700x600")
+        self.title("Skills")
+        self.geometry("600x600")
+        self.minsize(500, 500)
         self.skills_manager = skills_manager
         self.on_skill_toggle = on_skill_toggle
 
-        print(f"[Skills] Creating window with {len(skills_manager.skills) if skills_manager else 0} skills")
+        self.protocol("WM_DELETE_WINDOW", lambda: self._close())
 
-        # Handle close properly
-        self.protocol("WM_DELETE_WINDOW", self._close_window)
+        self._build_ui()
 
-        try:
-            self._create_widgets()
-            print("[Skills] Widgets created successfully")
-        except Exception as e:
-            print(f"[Skills] ERROR creating widgets: {e}")
-            import traceback
-            traceback.print_exc()
-
-    def _close_window(self):
-        """Close the window."""
-        SkillsWindow._open_instance = None
+    def _close(self):
+        SkillsWindow._instance = None
         self.destroy()
 
-    def _create_widgets(self):
-        # Main container
-        main = ctk.CTkFrame(self, fg_color=("#1a1a2e", "#0f0f1a"))
-        main.pack(fill="both", expand=True, padx=1, pady=1)
+    def _build_ui(self):
+        # Simple column layout
+        self.columnconfigure(0, weight=1)
+        self.rowconfigure(0, weight=1)
 
-        # Header
-        header = ctk.CTkFrame(main, height=70, fg_color=("#252535", "#1a1a25"))
-        header.pack(fill="x")
-        header.pack_propagate(False)
+        # Main frame
+        main = ctk.CTkFrame(self, fg_color=("#1e1e2e", "#16213e"))
+        main.grid(row=0, column=0, sticky="nsew", padx=2, pady=2)
+        main.columnconfigure(0, weight=1)
+        main.rowconfigure(1, weight=1)  # Skills frame expands
+        main.rowconfigure(0, weight=0)  # Title bar fixed height
+        main.rowconfigure(2, weight=0)  # Bottom bar fixed height
+        # Row 0 (title bar) and row 2 (bottom bar) use their natural heights
 
-        ctk.CTkLabel(
-            header,
-            text="🎯 Skills Manager",
-            font=ctk.CTkFont(size=20, weight="bold"),
-            text_color="#4a9eff"
-        ).pack(side="left", padx=20, pady=15)
+        # Title bar
+        title_bar = ctk.CTkFrame(main, height=50, fg_color=("#252535", "#1a1a25"))
+        title_bar.grid(row=0, column=0, sticky="ew", padx=5, pady=(5, 0))
+        title_bar.columnconfigure(1, weight=1)
+
+        ctk.CTkLabel(title_bar, text="🎯 Skills", font=ctk.CTkFont(size=18, weight="bold")).grid(row=0, column=0, padx=15, pady=10)
 
         # Close button
-        ctk.CTkButton(
-            header,
-            text="✕ CLOSE",
-            width=100,
-            height=35,
-            command=self._close_window,
-            fg_color=("#ff5555", "#cc4444"),
-            hover_color=("#ff7777", "#dd5555"),
-            font=ctk.CTkFont(size=12, weight="bold")
-        ).pack(side="right", padx=15, pady=15)
+        ctk.CTkButton(title_bar, text="✕", width=40, height=30, command=self._close,
+                      fg_color=("#ff5555", "#cc4444")).grid(row=0, column=2, padx=10, pady=8)
 
         # Skills list
-        list_frame = ctk.CTkFrame(main, fg_color="transparent")
-        list_frame.pack(fill="both", expand=True, padx=15, pady=(10, 10))
+        self.skills_frame = ctk.CTkScrollableFrame(main, fg_color="transparent")
+        self.skills_frame.grid(row=1, column=0, sticky="nsew", padx=10, pady=10)
 
-        self.skills_container = ctk.CTkScrollableFrame(
-            list_frame,
-            fg_color="transparent",
-            scrollbar_button_color=("#4a9eff", "#3b7ac7"),
-            label_text="Available Skills"
-        )
-        self.skills_container.pack(fill="both", expand=True)
+        # Add skills
+        for skill in self.skills_manager.get_all_skills():
+            self._add_skill_row(self.skills_frame, skill)
 
-        print(f"[Skills] Loading skills... Found {len(self.skills_manager.skills)} skills")
-        self._load_skills()
-
-        # Bottom bar with Add button - pack BEFORE skills list to ensure it's visible
+        # Bottom bar
         bottom = ctk.CTkFrame(main, height=60, fg_color=("#252535", "#1a1a25"))
-        bottom.pack(fill="x", side="bottom", before=list_frame)
-        bottom.pack_propagate(False)
+        bottom.grid(row=2, column=0, sticky="ew", padx=5, pady=(0, 5))
 
-        ctk.CTkButton(
-            bottom,
-            text="➕ ADD NEW SKILL",
-            width=160,
-            height=38,
-            command=self._open_add_skill_dialog,
-            fg_color=("#50fa7b", "#40c969"),
-            hover_color=("#40c969", "#30b959"),
-            text_color=("#000000", "#000000"),
-            font=ctk.CTkFont(size=12, weight="bold")
-        ).pack(side="left", padx=20, pady=10)
+        ctk.CTkButton(bottom, text="➕ Add Skill", width=130, height=40,
+                      font=ctk.CTkFont(size=12, weight="bold"),
+                      fg_color=("#50fa7b", "#40c969"),
+                      hover_color=("#40c969", "#30b959"),
+                      text_color=("#000000", "#000000"),
+                      corner_radius=8,
+                      command=self._add_skill).grid(row=0, column=0, padx=15, pady=10)
 
-        ctk.CTkLabel(
-            bottom,
-            text=f"{len(self.skills_manager.skills)} skills loaded",
-            font=ctk.CTkFont(size=11),
-            text_color=("#888888", "#666666")
-        ).pack(side="right", padx=20, pady=10)
+        count_label = ctk.CTkLabel(bottom, text=f"{len(self.skills_manager.skills)} skills",
+                                   font=ctk.CTkFont(size=11))
+        count_label.grid(row=0, column=1, padx=15, pady=10)
 
-        print("[Skills] Window created successfully")
+    def _add_skill_row(self, parent, skill):
+        row = ctk.CTkFrame(parent, fg_color=("#2a2a3a", "#1a1a2a"), corner_radius=8)
+        row.pack(fill="x", pady=3)
 
-    def _load_skills(self):
-        """Load and display all skills."""
-        for widget in self.skills_container.winfo_children():
+        ctk.CTkLabel(row, text=skill.icon, font=ctk.CTkFont(size=16)).pack(side="left", padx=10, pady=8)
+        ctk.CTkLabel(row, text=skill.name, font=ctk.CTkFont(size=12)).pack(side="left", padx=5, pady=8)
+
+        switch = ctk.CTkSwitch(row, text="", width=40,
+                               progress_color=("#50fa7b", "#40c969") if skill.enabled else ("#4a9eff", "#3b7ac7"))
+        switch.pack(side="right", padx=10, pady=8)
+        if skill.enabled:
+            switch.select()
+
+        def toggle():
+            skill.enabled = switch.get()
+            self.skills_manager.save_config()
+            if self.on_skill_toggle:
+                self.on_skill_toggle(skill.id, skill.enabled)
+
+        switch.configure(command=toggle)
+
+    def _add_skill(self):
+        """Open the create skill dialog."""
+        from skills_manager import CreateSkillDialog
+
+        CreateSkillDialog(
+            self,
+            self.skills_manager,
+            on_skill_created=self._refresh_skills
+        )
+
+    def _refresh_skills(self):
+        """Refresh the skills list after changes."""
+        # Clear and rebuild the skills list
+        for widget in self.skills_frame.winfo_children():
             widget.destroy()
 
         for skill in self.skills_manager.get_all_skills():
-            self._create_skill_item(skill)
+            self._add_skill_row(self.skills_frame, skill)
 
-    def _create_skill_item(self, skill):
-        """Create a skill item."""
-        bg = ("#2a3a2a", "#1a2a1a") if skill.enabled else ("#252535", "#1a1a25")
-        text_col = "#ffffff" if skill.enabled else "#aaaaaa"
+        # Update count label
+        for widget in self.winfo_children():
+            self._update_count_label(widget)
 
-        item = ctk.CTkFrame(self.skills_container, fg_color=bg, corner_radius=8)
-        item.pack(fill="x", pady=4)
+    def _update_count_label(self, widget):
+        """Recursively find and update the count label."""
+        try:
+            if hasattr(widget, 'cget') and 'skills' in str(widget.cget('text')):
+                widget.configure(text=f"{len(self.skills_manager.skills)} skills")
+                return
+        except:
+            pass
 
-        row = ctk.CTkFrame(item, fg_color="transparent")
-        row.pack(fill="x", padx=12, pady=10)
+        for child in widget.winfo_children():
+            self._update_count_label(child)
 
-        ctk.CTkLabel(row, text=skill.icon, font=ctk.CTkFont(size=18)).pack(side="left", padx=(0, 10))
 
-        ctk.CTkLabel(
-            row,
-            text=skill.name,
-            font=ctk.CTkFont(size=13, weight="bold"),
-            text_color=text_col
-        ).pack(side="left")
+class ModelCatalogWindow(ctk.CTkToplevel):
+    """Model catalog and download window."""
 
-        toggle = ctk.CTkSwitch(
-            row,
-            text="",
-            width=44,
-            progress_color=("#50fa7b", "#40c969") if skill.enabled else ("#4a9eff", "#3b7ac7"),
-            button_color=("#50fa7b", "#40c969") if skill.enabled else ("#4a9eff", "#3b7ac7"),
-            fg_color="transparent"
+    _instance = None
+
+    def __init__(self, parent, model_manager, on_model_select=None, on_model_download=None):
+        # Close existing if any
+        if ModelCatalogWindow._instance:
+            try:
+                ModelCatalogWindow._instance.destroy()
+            except:
+                pass
+
+        super().__init__(parent)
+        ModelCatalogWindow._instance = self
+
+        self.title("🤖 Model Catalog")
+        self.geometry("900x700")
+        self.model_manager = model_manager
+        self.on_model_select = on_model_select
+        self.on_model_download = on_model_download
+
+        self.protocol("WM_DELETE_WINDOW", lambda: self._close())
+        self._download_progress_window = None
+
+        self._build_ui()
+        self._load_models()
+
+    def _close(self):
+        ModelCatalogWindow._instance = None
+        self.destroy()
+
+    def _build_ui(self):
+        self.columnconfigure(0, weight=1)
+        self.rowconfigure(0, weight=1)
+
+        # Main frame
+        main = ctk.CTkFrame(self, fg_color=("#1e1e2e", "#16213e"))
+        main.grid(row=0, column=0, sticky="nsew", padx=2, pady=2)
+        main.columnconfigure(0, weight=1)
+        main.rowconfigure(1, weight=1)
+
+        # Title bar
+        title_bar = ctk.CTkFrame(main, height=50, fg_color=("#252535", "#1a1a25"))
+        title_bar.grid(row=0, column=0, sticky="ew", padx=5, pady=(5, 0))
+        title_bar.columnconfigure(1, weight=1)
+
+        ctk.CTkLabel(title_bar, text="🤖 Model Catalog",
+                     font=ctk.CTkFont(size=18, weight="bold")).grid(row=0, column=0, padx=15, pady=10)
+
+        # Refresh button
+        ctk.CTkButton(title_bar, text="🔄 Refresh", width=100,
+                      command=self._load_models,
+                      fg_color=("#4a9eff", "#3b7ac7")).grid(row=0, column=1, padx=5)
+
+        # Close button
+        ctk.CTkButton(title_bar, text="✕", width=40, height=30, command=self._close,
+                      fg_color=("#ff5555", "#cc4444")).grid(row=0, column=2, padx=10, pady=8)
+
+        # Content frame with tabs
+        content = ctk.CTkFrame(main, fg_color="transparent")
+        content.grid(row=1, column=0, sticky="nsew", padx=10, pady=10)
+        content.columnconfigure(0, weight=1)
+        content.rowconfigure(1, weight=1)
+
+        # Tab buttons
+        tab_frame = ctk.CTkFrame(content, height=40, fg_color="transparent")
+        tab_frame.grid(row=0, column=0, sticky="ew", pady=(0, 10))
+
+        self.tab_var = ctk.StringVar(value="catalog")
+
+        ctk.CTkRadioButton(tab_frame, text="📚 Catalog", variable=self.tab_var,
+                          value="catalog", command=self._switch_tab,
+                          font=ctk.CTkFont(size=13)).pack(side="left", padx=10)
+
+        ctk.CTkRadioButton(tab_frame, text="💾 Installed", variable=self.tab_var,
+                          value="installed", command=self._switch_tab,
+                          font=ctk.CTkFont(size=13)).pack(side="left", padx=10)
+
+        # Model list container
+        self.model_container = ctk.CTkScrollableFrame(content, fg_color="transparent")
+        self.model_container.grid(row=1, column=0, sticky="nsew")
+
+        # Store model items
+        self.model_items = {}
+
+    def _switch_tab(self):
+        """Switch between catalog and installed views."""
+        tab = self.tab_var.get()
+        self._load_models(tab=tab)
+
+    def _load_models(self, tab=None):
+        """Load models based on current tab."""
+        if tab is None:
+            tab = self.tab_var.get()
+
+        # Clear existing items
+        for widget in self.model_container.winfo_children():
+            widget.destroy()
+        self.model_items.clear()
+
+        if tab == "catalog":
+            self._load_catalog()
+        else:
+            self._load_installed()
+
+    def _load_catalog(self):
+        """Load model catalog."""
+        installed_ids = set(m.model_id for m in self.model_manager.get_installed_models())
+
+        for model in self.model_manager.get_recommended_catalog():
+            self._add_catalog_item(model, model.id in installed_ids)
+
+    def _load_installed(self):
+        """Load installed models."""
+        installed = self.model_manager.get_installed_models()
+        active_id = self.model_manager.get_active_model()
+
+        if not installed:
+            ctk.CTkLabel(
+                self.model_container,
+                text="No models installed.\nBrowse the catalog to download models.",
+                font=ctk.CTkFont(size=12),
+                text_color=("gray50", "gray50")
+            ).pack(pady=40)
+            return
+
+        for installed_model in installed:
+            model_info = self.model_manager.get_model_info(installed_model.model_id)
+            self._add_installed_item(installed_model, model_info, active_id)
+
+    def _add_catalog_item(self, model, is_installed):
+        """Add a catalog model item."""
+        item = ctk.CTkFrame(
+            self.model_container,
+            fg_color=("#2a2a3a", "#1a1a2a"),
+            corner_radius=10
         )
-        toggle.pack(side="right")
-        if skill.enabled:
-            toggle.select()
+        item.pack(fill="x", pady=8)
 
-        def toggle_skill():
-            is_on = toggle.get()
-            skill.enabled = is_on
-            self.skills_manager.save_config()
-            if self.on_skill_toggle:
-                self.on_skill_toggle(skill.id, is_on)
+        # Left side - Model info
+        left_frame = ctk.CTkFrame(item, fg_color="transparent")
+        left_frame.pack(side="left", fill="both", expand=True, padx=15, pady=10)
 
-        toggle.configure(command=toggle_skill)
+        # Name and size
+        name_label = ctk.CTkLabel(
+            left_frame,
+            text=f"{model.get_display_name()} • {model.get_size_display()}",
+            font=ctk.CTkFont(size=14, weight="bold"),
+            anchor="w"
+        )
+        name_label.pack(fill="x")
 
-    def _open_add_skill_dialog(self):
-        """Open dialog to add a new custom skill."""
-        dialog = ctk.CTkToplevel(self)
-        dialog.title("Add New Skill")
-        dialog.geometry("500x400")
-        dialog.transient(self)
-        dialog.grab_set()
+        # Description
+        desc_label = ctk.CTkLabel(
+            left_frame,
+            text=model.description,
+            font=ctk.CTkFont(size=11),
+            text_color=("gray70", "gray50"),
+            anchor="w"
+        )
+        desc_label.pack(fill="x", pady=(3, 5))
 
-        # Form
-        form = ctk.CTkFrame(dialog, fg_color=("#1a1a2e", "#0f0f1a"))
-        form.pack(fill="both", expand=True, padx=1, pady=1)
+        # Specs
+        specs = f"RAM: {model.get_ram_display()} • Context: {model.context_size:,} tokens"
+        specs_label = ctk.CTkLabel(
+            left_frame,
+            text=specs,
+            font=ctk.CTkFont(size=10),
+            text_color=("gray60", "gray40"),
+            anchor="w"
+        )
+        specs_label.pack(fill="x")
+
+        # Tags
+        if model.tags:
+            tags_text = " • ".join(model.tags[:3])
+            tags_label = ctk.CTkLabel(
+                left_frame,
+                text=tags_text,
+                font=ctk.CTkFont(size=9),
+                text_color=("#4a9eff", "#3b7ac7"),
+                anchor="w"
+            )
+            tags_label.pack(fill="x", pady=(3, 0))
+
+        # Right side - Actions
+        right_frame = ctk.CTkFrame(item, fg_color="transparent")
+        right_frame.pack(side="right", padx=15, pady=10)
+
+        # Check if this is the active model
+        active_id = self.model_manager.get_active_model() if self.model_manager else None
+        is_active = (model.id == active_id)
+
+        if is_installed:
+            if is_active:
+                # Active model - show star icon
+                status_label = ctk.CTkLabel(
+                    right_frame,
+                    text="⭐ Active",
+                    font=ctk.CTkFont(size=11, weight="bold"),
+                    text_color=("#f1c40f", "#d4ac0d")
+                )
+                status_label.pack(pady=5)
+            else:
+                # Installed but not active - show activate and delete buttons
+                activate_btn = ctk.CTkButton(
+                    right_frame,
+                    text="⭐ Activate",
+                    width=110,
+                    command=lambda: self._activate_model(model.id),
+                    fg_color=("#4a9eff", "#3b7ac7"),
+                    hover_color=("#3b7ac7", "#2d5f9e")
+                )
+                activate_btn.pack(pady=3)
+
+                delete_btn = ctk.CTkButton(
+                    right_frame,
+                    text="🗑️ Delete",
+                    width=110,
+                    command=lambda: self._delete_model(model.id),
+                    fg_color=("#ff5555", "#cc4444"),
+                    hover_color=("#cc4444", "#aa3333")
+                )
+                delete_btn.pack(pady=3)
+        else:
+            download_btn = ctk.CTkButton(
+                right_frame,
+                text="⬇️ Download",
+                width=110,
+                command=lambda: self._download_model(model),
+                fg_color=("#50fa7b", "#40c969"),
+                hover_color=("#40c969", "#30b959")
+            )
+            download_btn.pack(pady=5)
+
+    def _add_installed_item(self, installed_model, model_info, active_model):
+        """Add an installed model item."""
+        item = ctk.CTkFrame(
+            self.model_container,
+            fg_color=("#2a2a3a", "#1a1a2a"),
+            corner_radius=10
+        )
+        item.pack(fill="x", pady=8)
+
+        # Active indicator
+        if installed_model.is_active:
+            item.configure(fg_color=("#2d5f9e", "#1e3f5e"))
+
+        # Left side - Model info
+        left_frame = ctk.CTkFrame(item, fg_color="transparent")
+        left_frame.pack(side="left", fill="both", expand=True, padx=15, pady=10)
+
+        # Name
+        if model_info:
+            name = model_info.get_display_name()
+        else:
+            name = installed_model.model_id
+
+        if installed_model.is_active:
+            name += " ⭐ Active"
+
+        name_label = ctk.CTkLabel(
+            left_frame,
+            text=name,
+            font=ctk.CTkFont(size=14, weight="bold" if installed_model.is_active else "normal"),
+            anchor="w"
+        )
+        name_label.pack(fill="x")
+
+        # File info
+        size_mb = installed_model.file_size_bytes / (1024 * 1024)
+        size_text = f"{size_mb:.1f} MB" if size_mb >= 1 else f"{installed_model.file_size_bytes} bytes"
+
+        info_label = ctk.CTkLabel(
+            left_frame,
+            text=f"📁 {installed_model.filepath} • {size_text}",
+            font=ctk.CTkFont(size=10),
+            text_color=("gray60", "gray40"),
+            anchor="w"
+        )
+        info_label.pack(fill="x")
+
+        # Right side - Actions
+        right_frame = ctk.CTkFrame(item, fg_color="transparent")
+        right_frame.pack(side="right", padx=15, pady=10)
+
+        if not installed_model.is_active:
+            activate_btn = ctk.CTkButton(
+                right_frame,
+                text="⭐ Activate",
+                width=100,
+                command=lambda: self._activate_model(installed_model.model_id),
+                fg_color=("#50fa7b", "#40c969")
+            )
+            activate_btn.pack(pady=3)
+
+            delete_btn = ctk.CTkButton(
+                right_frame,
+                text="🗑️",
+                width=40,
+                command=lambda: self._delete_model(installed_model.model_id),
+                fg_color=("#ff5555", "#cc4444")
+            )
+            delete_btn.pack(pady=3)
+
+    def _download_model(self, model):
+        """Download a model."""
+        # Open progress window
+        self._download_progress_window = DownloadProgressDialog(
+            self,
+            model,
+            on_close=lambda: self._load_models()
+        )
+
+        # Start download
+        self.model_manager.download_model(
+            model.id,
+            on_progress=lambda p: self._download_progress_window.update_progress(p),
+            on_complete=lambda success, msg: self._download_progress_window.complete(success, msg)
+        )
+
+    def _activate_model(self, model_id):
+        """Activate a model."""
+        if self.on_model_select:
+            self.on_model_select(model_id)
+
+    def _delete_model(self, model_id):
+        """Delete a model after confirmation."""
+        # Check if this is the active model
+        active_model = self.model_manager.get_active_model()
+        if active_model and active_model.model_id == model_id:
+            messagebox.showwarning(
+                "Cannot Delete Active Model",
+                "You cannot delete the currently active model.\n\n"
+                "Please activate another model first, then delete this one."
+            )
+            return
+
+        if messagebox.askyesno(
+            "Delete Model",
+            "Are you sure you want to delete this model? This cannot be undone."
+        ):
+            if self.model_manager.delete_model(model_id):
+                messagebox.showinfo("Success", "Model deleted successfully.")
+                self._load_models()
+            else:
+                messagebox.showerror("Error", "Failed to delete model.")
+
+
+class DownloadProgressDialog(ctk.CTkToplevel):
+    """Progress dialog for model downloads."""
+
+    def __init__(self, parent, model, on_close=None):
+        super().__init__(parent)
+
+        self.title("⬇️ Downloading Model")
+        self.geometry("500x300")
+        self.model = model
+        self.on_close = on_close
+
+        self._build_ui()
+
+    def _build_ui(self):
+        self.columnconfigure(0, weight=1)
+        self.rowconfigure(0, weight=1)
+
+        main = ctk.CTkFrame(self, fg_color=("#1e1e2e", "#16213e"))
+        main.grid(row=0, column=0, sticky="nsew", padx=2, pady=2)
+
+        # Model info
+        info_frame = ctk.CTkFrame(main, fg_color=("#252535", "#1a1a25"))
+        info_frame.pack(fill="x", padx=20, pady=20)
 
         ctk.CTkLabel(
-            form,
-            text="➕ Create Custom Skill",
-            font=ctk.CTkFont(size=18, weight="bold"),
-            text_color="#50fa7b"
-        ).pack(pady=15)
+            info_frame,
+            text=f"Downloading {self.model.get_display_name()}",
+            font=ctk.CTkFont(size=16, weight="bold")
+        ).pack(pady=10)
 
-        # Name input
-        ctk.CTkLabel(form, text="Skill Name:", anchor="w").pack(fill="x", padx=20, pady=(10, 0))
-        name_entry = ctk.CTkEntry(form, height=36, placeholder_text="e.g., Data Analysis")
-        name_entry.pack(fill="x", padx=20, pady=(5, 10))
+        ctk.CTkLabel(
+            info_frame,
+            text=f"Size: {self.model.get_size_display()}",
+            font=ctk.CTkFont(size=12),
+            text_color=("gray70", "gray50")
+        ).pack()
 
-        # Description input
-        ctk.CTkLabel(form, text="Description:", anchor="w").pack(fill="x", padx=20)
-        desc_entry = ctk.CTkEntry(form, height=36, placeholder_text="What does this skill do?")
-        desc_entry.pack(fill="x", padx=20, pady=(5, 10))
+        # Progress bar
+        self.progress_bar = ctk.CTkProgressBar(
+            main,
+            width=400,
+            height=20,
+            progress_color=("#50fa7b", "#40c969")
+        )
+        self.progress_bar.set(0)
+        self.progress_bar.pack(pady=20)
 
-        # Content input
-        ctk.CTkLabel(form, text="Instructions/Content:", anchor="w").pack(fill="x", padx=20)
-        content_text = ctk.CTkTextbox(form, height=150)
-        content_text.pack(fill="x", padx=20, pady=(5, 10))
+        # Status label
+        self.status_label = ctk.CTkLabel(
+            main,
+            text="Initializing...",
+            font=ctk.CTkFont(size=12)
+        )
+        self.status_label.pack()
 
-        # Buttons
-        btn_frame = ctk.CTkFrame(form, fg_color="transparent")
-        btn_frame.pack(fill="x", padx=20, pady=15)
+        # Details label
+        self.details_label = ctk.CTkLabel(
+            main,
+            text="",
+            font=ctk.CTkFont(size=10),
+            text_color=("gray70", "gray50")
+        )
+        self.details_label.pack(pady=5)
 
-        def save_skill():
-            name = name_entry.get().strip()
-            desc = desc_entry.get().strip()
-            content = content_text.get("0.0", "end").strip()
-
-            if not name:
-                messagebox.showerror("Error", "Please enter a skill name")
-                return
-
-            if not content:
-                messagebox.showerror("Error", "Please enter skill content")
-                return
-
-            # Create skill file
-            import os
-            from skills_manager import SkillInfo
-
-            skill_id = name.lower().replace(" ", "_").replace("-", "_")
-            filename = f"skills/skill_{skill_id}.md"
-
-            # Write skill file
-            os.makedirs("skills", exist_ok=True)
-            with open(filename, 'w') as f:
-                f.write(f"# {name}\n")
-                f.write(f"## Description:\n{desc}\n\n")
-                f.write(f"## Instructions:\n{content}\n")
-
-            # Reload skills
-            self.skills_manager._load_skills()
-            self._load_skills()
-
-            messagebox.showinfo("Success", f"Skill '{name}' created!")
-            dialog.destroy()
-
-        def cancel():
-            dialog.destroy()
-
-        ctk.CTkButton(
-            btn_frame,
-            text="Cancel",
+        # Close button (disabled initially)
+        self.close_btn = ctk.CTkButton(
+            main,
+            text="Close",
             width=100,
-            command=cancel,
-            fg_color=("#666666", "#444444")
-        ).pack(side="right", padx=5)
+            command=self._close,
+            state="disabled"
+        )
+        self.close_btn.pack(pady=20)
 
-        ctk.CTkButton(
-            btn_frame,
-            text="💾 Save Skill",
-            width=120,
-            command=save_skill,
-            fg_color=("#50fa7b", "#40c969"),
-            hover_color=("#40c969", "#30b959"),
-            text_color=("#000000", "#000000")
-        ).pack(side="right")
+    def update_progress(self, progress):
+        """Update download progress."""
+        self.progress_bar.set(progress.percentage / 100)
+
+        downloaded_mb = progress.downloaded_bytes / (1024 * 1024)
+        total_mb = progress.total_bytes / (1024 * 1024)
+
+        self.status_label.configure(
+            text=f"Downloading... {progress.percentage:.1f}%"
+        )
+        self.details_label.configure(
+            text=f"{downloaded_mb:.1f} MB / {total_mb:.1f} MB"
+        )
+
+    def complete(self, success: bool, message: str):
+        """Handle download completion."""
+        if success:
+            self.progress_bar.set(1)
+            self.status_label.configure(
+                text="✅ Download Complete!",
+                text_color=("#50fa7b", "#40c969")
+            )
+        else:
+            self.progress_bar.set(0)
+            self.status_label.configure(
+                text="❌ Download Failed",
+                text_color=("#ff5555", "#cc4444")
+            )
+            self.details_label.configure(text=message)
+
+        self.close_btn.configure(state="normal")
+
+    def _close(self):
+        """Close the dialog."""
+        if self.on_close:
+            self.on_close()
+        self.destroy()
+

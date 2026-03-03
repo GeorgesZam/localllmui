@@ -443,7 +443,7 @@ class RAG:
         self.documents = all_chunks
         self._save_index(log)
 
-    def search(self, query: str, top_k: int = None, max_context_chars: int = 1200) -> Tuple[str, List[dict]]:
+    def search(self, query: str, top_k: int = None, max_context_chars: int = 1200, allowed_sources: List[str] = None) -> Tuple[str, List[dict]]:
         """
         Search for relevant documents with context size limit.
 
@@ -451,10 +451,14 @@ class RAG:
             query: Search query
             top_k: Number of results to return
             max_context_chars: Maximum characters for context (to avoid context window overflow)
+            allowed_sources: Optional list of document filenames to filter results (for conversation isolation)
 
         Returns:
             Tuple of (context string, list of sources)
         """
+        # If allowed_sources is provided, create a set for faster lookup
+        # None means search all documents, [] means search no documents
+        allowed_set = set(allowed_sources) if allowed_sources is not None else None
         if not self.documents:
             self.last_sources = []
             return "", []
@@ -463,20 +467,37 @@ class RAG:
         min_score = getattr(config, 'RAG_MIN_SCORE', 0.3)
         results = []
 
+        # Filter documents by allowed sources if provided
+        searchable_docs = self.documents
+        if allowed_set is not None:
+            searchable_docs = [d for d in self.documents if d["source"] in allowed_set]
+
+        if not searchable_docs:
+            self.last_sources = []
+            return "", []
+
         if self.embeddings is not None and self.embedding_model.is_loaded:
+            # Create a mapping from original document indices to filtered ones
+            original_to_filtered = {i: doc for i, doc in enumerate(self.documents)}
+            filtered_indices = [i for i, doc in enumerate(self.documents) if doc["source"] in allowed_set] if allowed_set is not None else list(range(len(self.documents)))
+
+            # Get embeddings for filtered documents only
+            filtered_embeddings = self.embeddings[filtered_indices] if allowed_set is not None else self.embeddings
+            filtered_docs = [self.documents[i] for i in filtered_indices] if allowed_set is not None else self.documents
+
             query_emb = self.embedding_model.encode([query], is_query=True)[0]
-            similarities = np.dot(self.embeddings, query_emb)
+            similarities = np.dot(filtered_embeddings, query_emb)
             top_indices = np.argsort(similarities)[-top_k * 2:][::-1]
 
             for idx in top_indices:
                 score = float(similarities[idx])
                 if score >= min_score:
-                    results.append((self.documents[idx], score))
+                    results.append((filtered_docs[idx], score))
             results = results[:top_k]
         else:
             query_words = set(query.lower().split())
             scored = []
-            for doc in self.documents:
+            for doc in searchable_docs:
                 content_lower = doc["content"].lower()
                 content_words = set(content_lower.split())
                 matches = query_words & content_words

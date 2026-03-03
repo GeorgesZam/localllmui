@@ -462,9 +462,13 @@ class CreateSkillDialog(ctk.CTkToplevel):
         self.selected_image_path = None
 
         self.title("Create New Skill")
-        self.geometry("600x700")
+        self.geometry("600x800")
         self.configure(fg_color="#1a1a2e")
         self.protocol("WM_DELETE_WINDOW", self._close_window)
+
+        # Make window resizable
+        self.minsize(550, 700)
+        self.resizable(True, True)
 
         self._create_widgets()
         self._center_window()
@@ -496,15 +500,35 @@ class CreateSkillDialog(ctk.CTkToplevel):
 
     def _create_widgets(self):
         """Create the dialog widgets."""
+        # Configure grid layout
+        self.columnconfigure(0, weight=1)
+        self.rowconfigure(1, weight=1)  # Make scrollable row expandable
+        self.rowconfigure(2, weight=0)  # Button row fixed
+
+        # Header
+        header = ctk.CTkFrame(self, fg_color="transparent", height=60)
+        header.grid(row=0, column=0, sticky="ew", padx=30, pady=(30, 10))
+        header.pack_propagate(False)
+
         ctk.CTkLabel(
-            self,
+            header,
             text="✨ Create New Skill",
             font=ctk.CTkFont(size=20, weight="bold"),
             text_color="#4a9eff",
-        ).pack(pady=(30, 20))
+        ).pack(pady=10)
 
-        form = ctk.CTkFrame(self, fg_color="#252535", corner_radius=15)
-        form.pack(fill="both", expand=True, padx=30, pady=(0, 20))
+        # Scrollable container for form
+        scroll_container = ctk.CTkScrollableFrame(
+            self,
+            fg_color="transparent",
+            scrollbar_button_color="#4a9eff",
+            scrollbar_button_hover_color="#3b7ac7",
+            height=450  # Fixed height for scroll area
+        )
+        scroll_container.grid(row=1, column=0, sticky="nsew", padx=30, pady=(0, 5))
+
+        form = ctk.CTkFrame(scroll_container, fg_color="#252535", corner_radius=15)
+        form.pack(fill="x", pady=(0, 20))
 
         self._create_form_field(form, "Skill Name *", "e.g., Image Generator", 20)
         self.name_entry = self.last_entry
@@ -514,9 +538,18 @@ class CreateSkillDialog(ctk.CTkToplevel):
         )
         self.desc_entry = self.last_entry
 
-        self._create_form_field(form, "Category *", "", 15)
-        self.category_combo = self.last_entry
-        self.category_combo.configure(
+        # Category label
+        ctk.CTkLabel(
+            form,
+            text="Category *",
+            font=ctk.CTkFont(size=12, weight="bold"),
+            text_color="#ffffff",
+            anchor="w",
+        ).pack(fill="x", padx=20, pady=(15, 5))
+
+        # Category combobox
+        self.category_combo = ctk.CTkComboBox(
+            form,
             values=[
                 "General",
                 "AI",
@@ -528,12 +561,12 @@ class CreateSkillDialog(ctk.CTkToplevel):
             font=ctk.CTkFont(size=12),
             fg_color="#1e1e2e",
             button_color="#4a9eff",
-            hover_color="#3b7ac7",
             border_color="#3a3a4a",
             dropdown_fg_color="#252535",
             text_color="#ffffff",
             height=40,
         )
+        self.category_combo.pack(fill="x", padx=20)
         self.category_combo.set("General")
 
         self._create_form_field(form, "Icon Emoji", "🔧", 15)
@@ -605,34 +638,39 @@ class CreateSkillDialog(ctk.CTkToplevel):
         )
         self.content_text.pack(fill="x", padx=20, pady=(0, 20))
 
-        button_frame = ctk.CTkFrame(self, fg_color="transparent")
-        button_frame.pack(fill="x", padx=30, pady=(0, 30))
+        # Buttons at bottom (always visible)
+        button_frame = ctk.CTkFrame(self, fg_color="#252535", corner_radius=15)
+        button_frame.grid(row=2, column=0, sticky="ew", padx=30, pady=(5, 25))
+
+        # Center the buttons
+        button_inner = ctk.CTkFrame(button_frame, fg_color="transparent")
+        button_inner.pack(expand=True, fill="both", padx=20, pady=20)
 
         ctk.CTkButton(
-            button_frame,
-            text="Cancel",
+            button_inner,
+            text="✕ Cancel",
             font=ctk.CTkFont(size=12, weight="bold"),
             fg_color="#3a3a4a",
             hover_color="#4a4a5a",
             text_color="#ffffff",
-            width=120,
-            height=40,
+            width=140,
+            height=45,
             corner_radius=10,
             command=self._close_window,
-        ).pack(side="left", padx=(0, 10))
+        ).pack(side="left", padx=10)
 
         ctk.CTkButton(
-            button_frame,
-            text="Create Skill",
-            font=ctk.CTkFont(size=12, weight="bold"),
+            button_inner,
+            text="✓ Create Skill",
+            font=ctk.CTkFont(size=13, weight="bold"),
             fg_color="#50fa7b",
             hover_color="#40c969",
             text_color="#000000",
-            width=120,
-            height=40,
+            width=150,
+            height=45,
             corner_radius=10,
             command=self._create_skill,
-        ).pack(side="right")
+        ).pack(side="left", padx=10)
 
     def _create_form_field(self, parent, label_text, placeholder, top_padding):
         """Helper to create form labels and entries."""

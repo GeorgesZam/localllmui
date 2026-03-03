@@ -84,12 +84,13 @@ class LLMEngine(Observable, metaclass=SingletonMeta):
         """Get the singleton LLM engine instance."""
         return cls()
 
-    def load(self, on_progress: Optional[Callable[[str], None]] = None) -> bool:
+    def load(self, on_progress: Optional[Callable[[str], None]] = None, model_path: Optional[str] = None) -> bool:
         """
         Load the LLM model and initialize RAG.
 
         Args:
             on_progress: Optional callback for progress updates
+            model_path: Optional path to model file (overrides config)
 
         Returns:
             True if loading successful
@@ -105,31 +106,47 @@ class LLMEngine(Observable, metaclass=SingletonMeta):
             ))
 
         try:
-            # Notify loading started
-            self.notify(StateEvent.create(
-                StateEvent.LOADING,
-                {'stage': 'rag_init'}
-            ))
+            # Initialize RAG if not already initialized
+            if self.rag is None:
+                # Notify loading started
+                self.notify(StateEvent.create(
+                    StateEvent.LOADING,
+                    {'stage': 'rag_init'}
+                ))
 
-            # Initialize RAG
-            self.rag = RAG()
-            self.rag.initialize(log)
+                # Initialize RAG
+                self.rag = RAG()
+                self.rag.initialize(log)
 
-            # Notify RAG loaded
-            self.notify(StateEvent.create(
-                StateEvent.LOADING,
-                {'stage': 'rag_complete', 'documents': len(self.rag.documents)}
-            ))
+                # Notify RAG loaded
+                self.notify(StateEvent.create(
+                    StateEvent.LOADING,
+                    {'stage': 'rag_complete', 'documents': len(self.rag.documents)}
+                ))
+            else:
+                log("RAG already initialized, skipping...")
 
             # Import llama_cpp
             log("Importing llama_cpp...")
             from llama_cpp import Llama
 
-            model_path = get_resource_path(self._config.MODEL_FILE)
-            log(f"Model: {model_path}")
+            # Use provided path or config
+            if model_path:
+                actual_model_path = model_path
+            else:
+                actual_model_path = get_resource_path(self._config.MODEL_FILE)
 
-            if not os.path.exists(model_path):
-                raise FileNotFoundError(f"Model not found: {model_path}")
+            log(f"Model: {actual_model_path}")
+
+            if not os.path.exists(actual_model_path):
+                raise FileNotFoundError(f"Model not found: {actual_model_path}")
+
+            # Unload previous model if exists
+            if self.llm is not None:
+                log("Unloading previous model...")
+                del self.llm
+                self.llm = None
+                self.is_ready = False
 
             # Load model
             log("Loading model...")
@@ -139,7 +156,7 @@ class LLMEngine(Observable, metaclass=SingletonMeta):
             ))
 
             self.llm = Llama(
-                model_path=model_path,
+                model_path=actual_model_path,
                 n_ctx=self._config.CONTEXT_SIZE,
                 n_threads=self._config.THREADS,
                 n_gpu_layers=self._config.GPU_LAYERS,
@@ -149,13 +166,16 @@ class LLMEngine(Observable, metaclass=SingletonMeta):
                 verbose=False
             )
 
+            # Clear history when switching models
+            self.history = []
+
             self.is_ready = True
             log("Ready!")
 
             # Notify ready state
             self.notify(StateEvent.create(
                 StateEvent.READY,
-                {'model': self._config.MODEL_FILE}
+                {'model': actual_model_path}
             ))
 
             return True
@@ -226,12 +246,13 @@ Answer based on context. If not found, say so."""
 
         return prompt
 
-    def generate(self, message: str) -> Iterator[str]:
+    def generate(self, message: str, allowed_document_sources: list = None) -> Iterator[str]:
         """
         Generate response for the given message.
 
         Args:
             message: User message
+            allowed_document_sources: Optional list of document filenames to filter RAG results (for conversation isolation)
 
         Yields:
             Generated tokens
@@ -262,7 +283,7 @@ Answer based on context. If not found, say so."""
         sources = []
 
         if self._config.RAG_ENABLED and self.rag and self.rag.documents:
-            rag_context, sources = self.rag.search(message)
+            rag_context, sources = self.rag.search(message, allowed_sources=allowed_document_sources)
             self._current_stats.rag_results_used = len(sources)
 
         prompt = self._build_prompt(message, rag_context)
@@ -438,6 +459,29 @@ Answer based on context. If not found, say so."""
         self.error = None
         self._current_stats = GenerationStats()
         self.notify(Event('engine_reset', {}))
+
+    def switch_model(self, model_path: str, model_id: str, on_progress: Optional[Callable[[str], None]] = None) -> bool:
+        """
+        Switch to a different model.
+
+        Args:
+            model_path: Path to the new model file
+            model_id: ID of the new model
+            on_progress: Optional callback for progress updates
+
+        Returns:
+            True if successful
+        """
+        # Update config
+        self._config.model_file = model_path
+        self._config.model_id = model_id
+
+        # Reload with new model
+        return self.load(on_progress=on_progress, model_path=model_path)
+
+    def get_current_model_id(self) -> str:
+        """Get the current model ID."""
+        return getattr(self._config, 'model_id', 'unknown')
 
 
 # Global convenience instance
