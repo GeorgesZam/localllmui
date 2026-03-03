@@ -141,7 +141,7 @@ class ResponseImprover:
             )
 
             if search_results and len(search_results[1]) > 0:
-                return f"🔍 I found some relevant documents. You might want to check these first:\n" + \
+                return f" I found some relevant documents. You might want to check these first:\n" + \
                        " - " + "\n - ".join([doc.get('title', doc.get('filename', 'Document'))
                                             for doc in search_results[1][:2]])
         except Exception as e:
