@@ -7,7 +7,12 @@ from functools import lru_cache
 def get_resource_path(relative_path: str) -> str:
     if hasattr(sys, '_MEIPASS'):
         return os.path.join(sys._MEIPASS, relative_path)
-    return relative_path
+    # Get the directory containing this script (src/ directory)
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    # Get the parent directory (project root)
+    project_root = os.path.dirname(script_dir)
+    # Return absolute path
+    return os.path.abspath(os.path.join(project_root, relative_path))
 
 
 _APP_DATA_DIR = None

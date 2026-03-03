@@ -132,7 +132,11 @@ class LLMEngine(Observable, metaclass=SingletonMeta):
 
             # Use provided path or config
             if model_path:
-                actual_model_path = model_path
+                # Convert to absolute path if relative
+                if not os.path.isabs(model_path):
+                    actual_model_path = os.path.abspath(model_path)
+                else:
+                    actual_model_path = model_path
             else:
                 actual_model_path = get_resource_path(self._config.MODEL_FILE)
 
