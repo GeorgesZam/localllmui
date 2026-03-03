@@ -774,7 +774,7 @@ class ChatUI(Observer):
 
         # Si la réponse est insuffisante, afficher des suggestions
         if result['is_insufficient']:
-            suggestions_text = "\n\n💡 Suggestions pour obtenir de meilleures réponses:\n"
+            suggestions_text = "\n\nSuggestions pour obtenir de meilleures reponses:\n"
 
             # Ajouter les suggestions du handler
             if result['suggestions']:
@@ -783,11 +783,11 @@ class ChatUI(Observer):
 
             # Ajouter tip RAG si applicable
             if self.response_handler.should_show_rag_tip(question):
-                suggestions_text += f"\n💡 Essayez de charger des documents pertinents avec le bouton 📁 Load Files, puis posez à nouveau votre question."
+                suggestions_text += f"\nEssayez de charger des documents pertinents avec le bouton Load Files, puis posez a nouveau votre question."
 
             # Ajouter des questions de suivi
             if result['follow_ups']:
-                suggestions_text += f"\n\n🔄 Questions de suivi:\n"
+                suggestions_text += f"\n\nQuestions de suivi:\n"
                 for follow_up in result['follow_ups']:
                     suggestions_text += f"• {follow_up}\n"
 

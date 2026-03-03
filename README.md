@@ -229,3 +229,24 @@ python src/main.py
 2. **Docs** : Cliquez Load
 3. **Models** : Cliquez Models
 4. **Skills** : Cliquez Skills
+
+## Notes
+
+### Gestion du débordement de contexte
+
+**Problème corrigé** : Avec de gros documents, l'erreur suivante pouvait survenir :
+```
+[Error: Requested tokens (2231) exceed context window of 2048]
+```
+
+**Solution** :
+- Contexte RAG limité à ~1200 caractères
+- Taille des chunks réduite de 384 à 256 tokens
+- Résultats top_k réduits de 3 à 2
+- Troncature intelligente qui préserve la structure
+
+**Recommandations** :
+- Documents petits (< 5 pages) : Utilisation directe
+- Documents moyens (5-20 pages) : RAG gère automatiquement
+- Documents gros (> 20 pages) : Pré-diviser manuellement
+- Poser des questions spécifiques plutôt que générales
