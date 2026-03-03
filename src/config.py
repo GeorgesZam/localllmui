@@ -35,7 +35,7 @@ class ConfigManager(metaclass=SingletonMeta):
         self.model_file = "models/qwen2.5-0.5b-instruct-q4_k_m.gguf"  # Default to Qwen 2.5 smallest
         self.model_id = "qwen2.5-0.5b"  # Model ID for catalog lookup
         self.embedding_model_folder = "models/embedding_model"
-        self.models_dir = "models"
+        self.models_dir = str(Path.home() / ".localllm_models")
 
         # CPU Configuration
         self._cpu_count = multiprocessing.cpu_count()

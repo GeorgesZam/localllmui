@@ -58,7 +58,22 @@ class ModelManager:
             models_dir: Directory to store downloaded models
         """
         self.models_dir = Path(models_dir)
-        self.models_dir.mkdir(exist_ok=True)
+        try:
+            self.models_dir.mkdir(exist_ok=True)
+        except PermissionError:
+            print(f"[ModelManager] Permission denied creating models directory: {models_dir}")
+            # Try using a fallback directory in user's home folder
+            fallback_dir = Path.home() / ".localllm_models"
+            fallback_dir.mkdir(exist_ok=True)
+            self.models_dir = fallback_dir
+            print(f"[ModelManager] Using fallback directory: {self.models_dir}")
+        except Exception as e:
+            print(f"[ModelManager] Error creating models directory: {e}")
+            # Use fallback directory
+            fallback_dir = Path.home() / ".localllm_models"
+            fallback_dir.mkdir(exist_ok=True)
+            self.models_dir = fallback_dir
+            print(f"[ModelManager] Using fallback directory: {self.models_dir}")
 
         self._state_file = self.models_dir / "models_state.json"
         self._installed_models: Dict[str, InstalledModel] = {}
@@ -145,7 +160,10 @@ class ModelManager:
 
     def scan_for_models(self):
         """Scan models directory for untracked models."""
-        for filepath in self.models_dir.glob("*.gguf"):
+        try:
+            if not self.models_dir.exists():
+                return
+            for filepath in self.models_dir.glob("*.gguf"):
             # Try to match with catalog
             found = False
             for model in MODEL_CATALOG:
@@ -203,6 +221,8 @@ class ModelManager:
         def download():
             try:
                 dest_path = self.models_dir / model_info.filename
+                if not dest_path.parent.exists():
+                    dest_path.parent.mkdir(parents=True, exist_ok=True)
 
                 # Initialize progress
                 total_bytes = model_info.file_size_mb * 1024 * 1024

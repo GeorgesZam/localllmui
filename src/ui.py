@@ -8,6 +8,7 @@ from typing import Callable, Optional
 import config
 from patterns.observer import Observer
 from rag import RAG
+from response_handler import ConversationAwareResponseHandler
 
 ctk.set_appearance_mode("dark")
 ctk.set_default_color_theme("blue")
@@ -267,6 +268,9 @@ class ChatUI(Observer):
         self.on_skill_toggle = on_skill_toggle
         self.on_open_model_catalog = on_open_model_catalog
         self.model_manager = model_manager
+
+        # Response handler
+        self.response_handler = ConversationAwareResponseHandler()
 
         # Code execution state
         self._code_executor = None
@@ -759,6 +763,40 @@ class ChatUI(Observer):
                     self.doc_info.configure(text="📚 Error loading info")
             else:
                 self.doc_info.configure(text="📚 No documents")
+
+    def show_response_suggestions(self, question: str, response: str):
+        """Afficher des suggestions lorsque la réponse est insuffisante."""
+        # Traiter la réponse avec le handler
+        result = self.response_handler.process_response(question, response, {
+            "conversation_id": self.conversation_id,
+            "has_rag": hasattr(self.llm, 'rag') and self.llm.rag is not None
+        })
+
+        # Si la réponse est insuffisante, afficher des suggestions
+        if result['is_insufficient']:
+            suggestions_text = "\n\n💡 Suggestions pour obtenir de meilleures réponses:\n"
+
+            # Ajouter les suggestions du handler
+            if result['suggestions']:
+                for key, suggestion in result['suggestions'].items():
+                    suggestions_text += f"• {suggestion}\n"
+
+            # Ajouter tip RAG si applicable
+            if self.response_handler.should_show_rag_tip(question):
+                suggestions_text += f"\n💡 Essayez de charger des documents pertinents avec le bouton 📁 Load Files, puis posez à nouveau votre question."
+
+            # Ajouter des questions de suivi
+            if result['follow_ups']:
+                suggestions_text += f"\n\n🔄 Questions de suivi:\n"
+                for follow_up in result['follow_ups']:
+                    suggestions_text += f"• {follow_up}\n"
+
+            # Insérer les suggestions dans le chat
+            self.add_message("Assistant", suggestions_text)
+
+    def set_conversation_for_response_handler(self, conversation_id: str):
+        """Définir l'ID de conversation pour le handler."""
+        self.response_handler.set_conversation(conversation_id)
 
 
 def format_code_output(result) -> str:

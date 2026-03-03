@@ -113,6 +113,10 @@ class App(ctk.CTk):
                     conv = self.conv_manager.get_current()
                     if conv:
                         self.conv_manager.add_message("assistant", data)
+                        # Ajouter à l'historique de la conversation
+                        self.ui.response_handler.add_to_conversation(text, data)
+                        # Vérifier si la réponse nécessite des suggestions
+                        self.ui.show_response_suggestions(text, data)
                     self.is_processing = False
                     self.ui.set_enabled(True)
 
@@ -214,6 +218,8 @@ class App(ctk.CTk):
         if hasattr(self.llm, 'rag') and self.llm.rag:
             self.llm.rag.add_conversation_mapping(conv.id, conv.document_ids)
         self.ui.update_doc_info()
+        # Set conversation for response handler
+        self.ui.set_conversation_for_response_handler(conv.id)
         self._update_sidebar()
 
     def _on_select_chat(self, conv_id: str):
@@ -226,6 +232,8 @@ class App(ctk.CTk):
                 self.llm.rag.add_conversation_mapping(conv_id, conv.document_ids)
             self.ui.update_doc_count(len(conv.document_ids))
             self.ui.update_doc_info()
+            # Set conversation for response handler
+            self.ui.set_conversation_for_response_handler(conv_id)
             self._update_sidebar()
 
     def _on_delete_chat(self, conv_id: str):
