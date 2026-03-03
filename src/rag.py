@@ -250,6 +250,8 @@ class RAG:
         self.embedding_model = EmbeddingModel()
         self.ocr_processor = OCRProcessor()
         self.parser = DocumentParser(self.ocr_processor)
+        self.chunks = {}  # Store chunks by conversation_id
+        self.conversation_docs = {}  # Store document mappings by conversation_id
         self.last_sources = []
         self._index_hash = None
 
@@ -592,3 +594,31 @@ class RAG:
                 os.remove(f)
         self.documents = []
         self._embeddings = None
+
+    def add_conversation_mapping(self, conversation_id: str, document_ids: List[str]):
+        """Add conversation to document mapping."""
+        if not hasattr(self, 'conversation_docs'):
+            self.conversation_docs = {}
+        self.conversation_docs[conversation_id] = document_ids
+
+    def get_conversation_documents(self, conversation_id: str) -> List[str]:
+        """Get documents for a specific conversation."""
+        if not hasattr(self, 'conversation_docs'):
+            return []
+        return self.conversation_docs.get(conversation_id, [])
+
+    def add_document_to_conversation(self, conversation_id: str, document_id: str):
+        """Add a document to a conversation."""
+        if not hasattr(self, 'conversation_docs'):
+            self.conversation_docs = {}
+
+        if conversation_id not in self.conversation_docs:
+            self.conversation_docs[conversation_id] = []
+
+        if document_id not in self.conversation_docs[conversation_id]:
+            self.conversation_docs[conversation_id].append(document_id)
+
+    def remove_conversation(self, conversation_id: str):
+        """Remove a conversation and its document mappings."""
+        if hasattr(self, 'conversation_docs'):
+            self.conversation_docs.pop(conversation_id, None)

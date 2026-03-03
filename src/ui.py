@@ -5,6 +5,8 @@ import customtkinter as ctk
 from tkinter import filedialog, messagebox, Tk
 from typing import Callable, Optional
 import config
+from patterns.observer import Observer
+from rag import RAG
 
 ctk.set_appearance_mode("dark")
 ctk.set_default_color_theme("blue")
@@ -250,7 +252,7 @@ class FileDownloadManager(ctk.CTkToplevel):
         self.destroy()
 
 
-class ChatUI:
+class ChatUI(Observer):
     def __init__(self, root: ctk.CTk, on_send, on_clear, on_load_files,
                  on_new_chat, on_select_chat, on_delete_chat, skills_manager=None,
                  on_skill_toggle=None, on_open_model_catalog=None, model_manager=None):
@@ -277,6 +279,19 @@ class ChatUI:
 
         self._setup_window()
         self._create_widgets()
+
+    def on_notify(self, event):
+        """
+        Handle events from the LLM engine.
+
+        Args:
+            event: Event object containing name and data
+        """
+        if event.name == 'code_detected':
+            self.handle_code_detected(event.data)
+        elif event.name == 'generation_complete':
+            # Could handle generation completion here if needed
+            pass
 
     def _setup_window(self):
         self.root.title(f"🤖 {config.APP_NAME}")
@@ -337,6 +352,13 @@ class ChatUI:
             width=100, height=32, corner_radius=8,
             font=ctk.CTkFont(size=12, weight="bold"),
             fg_color=("#e67e22", "#d35400"), hover_color=("#d35400", "#ba4a00")
+        ).pack(side="left", padx=(0, 10))
+
+        ctk.CTkButton(
+            toolbar, text="🧠 RAG", command=self._open_rag_config,
+            width=80, height=32, corner_radius=8,
+            font=ctk.CTkFont(size=12, weight="bold"),
+            fg_color=("#bd93f9", "#9b59b6"), hover_color=("#9b59b6", "#8e44ad")
         ).pack(side="left")
 
         self.doc_info = ctk.CTkLabel(toolbar, text="📚 No documents",
@@ -527,6 +549,121 @@ class ChatUI:
             # Show download button
             self._show_download_button()
 
+    def handle_code_detected(self, code_data: dict):
+        """
+        Handle detection of executable code in the response.
+
+        Args:
+            code_data: Dictionary containing 'language', 'code', 'full_response'
+        """
+        language = code_data.get('language', 'python')
+        code = code_data.get('code', '')
+
+        if not code:
+            return
+
+        # Add a system message with execution option
+        self.add_message("System",
+            f"\n🔍 Detected {language} code in the response!"
+        )
+        self.add_message("System",
+            "Click '▶️ Run Code' below to execute it."
+        )
+
+        # Insert a clickable button in the chat
+        self._insert_run_code_button(code, language)
+
+    def _insert_run_code_button(self, code: str, language: str):
+        """Insert a clickable button to run the detected code."""
+        try:
+            # Create a frame for the button
+            button_frame = ctk.CTkFrame(
+                self.chat,
+                fg_color=("#2a2a3a", "#1a1a2a"),
+                corner_radius=8
+            )
+
+            # Create run button
+            run_button = ctk.CTkButton(
+                button_frame,
+                text="▶️ Run Code",
+                width=120,
+                height=35,
+                command=lambda: self._execute_detected_code(code, language),
+                fg_color=("#50fa7b", "#40c969"),
+                hover_color=("#40c969", "#30b959"),
+                font=ctk.CTkFont(size=12, weight="bold")
+            )
+            run_button.pack(side="left", padx=10, pady=8)
+
+            # Create copy button
+            copy_button = ctk.CTkButton(
+                button_frame,
+                text="📋 Copy",
+                width=100,
+                height=35,
+                command=lambda: self._copy_code_to_clipboard(code),
+                fg_color=("#4a9eff", "#3b7ac7"),
+                hover_color=("#3b7ac7", "#2d5f9e"),
+                font=ctk.CTkFont(size=11)
+            )
+            copy_button.pack(side="left", padx=(0, 10), pady=8)
+
+            # Insert the frame at the end of chat
+            self.chat.window_create("end", window=button_frame)
+            self.chat.insert("end", "\n\n")
+            self.chat.see("end")
+
+        except Exception as e:
+            print(f"[UI] Error inserting run code button: {e}")
+
+    def _execute_detected_code(self, code: str, language: str):
+        """Execute the detected code."""
+        try:
+            from code_executor import EnhancedSandboxedCodeExecutor, ResourceLimits
+            from tkinter import messagebox
+
+            # Check if it's Python code (we only support Python execution for now)
+            if language not in ['python', 'py', '']:
+                messagebox.showinfo("Not Supported",
+                    f"Code execution for {language} is not supported yet. Only Python is supported.")
+                return
+
+            # Create executor with resource limits
+            resource_limits = ResourceLimits(
+                max_cpu_time=self.root.master.master._config.CODE_EXECUTION_TIMEOUT,
+                max_memory_mb=self.root.master.master._config.CODE_EXECUTION_MAX_MEMORY_MB,
+                allow_network=False
+            )
+
+            executor = EnhancedSandboxedCodeExecutor(resource_limits)
+            self._code_executor = executor
+
+            # Execute the code
+            self.add_message("System", f"⚡ Executing {language} code...\n")
+
+            result = executor.execute(code)
+
+            # Format and display result
+            output = format_code_output(result)
+            self.add_message("System", output)
+
+            # If files were created, offer downloads
+            if result.files_created:
+                self.handle_code_execution_complete(result, executor)
+
+        except Exception as e:
+            self.add_message("System", f"❌ Error executing code: {e}")
+
+    def _copy_code_to_clipboard(self, code: str):
+        """Copy code to clipboard."""
+        try:
+            self.root.clipboard_clear()
+            self.root.clipboard_append(code)
+            self.add_message("System", "✅ Code copied to clipboard!")
+        except Exception as e:
+            print(f"[UI] Error copying to clipboard: {e}")
+
     def _show_download_button(self):
         """Show download files button in chat."""
         # Insert a clickable download indicator
@@ -592,6 +729,35 @@ class ChatUI:
             skill_id for skill_id, skill in self.skills_manager.skills.items()
             if skill.enabled
         ]
+
+    def _open_rag_config(self):
+        """Open RAG configuration window."""
+        if hasattr(self, '_rag_config_window') and self._rag_config_window:
+            self._rag_config_window.lift()
+            self._rag_config_window.focus_force()
+            return
+
+        self._rag_config_window = RAGConfigWindow(
+            self.root,
+            self.llm.rag if self.llm.rag else None,
+            self
+        )
+
+    def update_doc_info(self):
+        """Update document information display."""
+        if hasattr(self, 'doc_info'):
+            if hasattr(self.llm, 'rag') and self.llm.rag:
+                try:
+                    docs = self.llm.rag.get_conversation_documents(self.conversation_id)
+                    doc_count = len(docs)
+                    # For now, show total chunks across all conversations
+                    total_chunks = sum(len(chunks) for chunks in self.llm.rag.chunks.values())
+                    self.doc_info.configure(text=f"📚 {doc_count} docs, {total_chunks} chunks")
+                except Exception as e:
+                    print(f"[UI] Error updating doc info: {e}")
+                    self.doc_info.configure(text="📚 Error loading info")
+            else:
+                self.doc_info.configure(text="📚 No documents")
 
 
 def format_code_output(result) -> str:
@@ -1537,4 +1703,373 @@ class DownloadProgressDialog(ctk.CTkToplevel):
         if self.on_close:
             self.on_close()
         self.destroy()
+
+
+class RAGConfigWindow(ctk.CTkToplevel):
+    """RAG Configuration window."""
+
+    def __init__(self, parent, rag, chat_ui):
+        super().__init__(parent)
+
+        self.title("RAG Configuration")
+        self.geometry("700x600")
+        self.minsize(600, 500)
+        self.rag = rag
+        self.chat_ui = chat_ui
+        self.protocol("WM_DELETE_WINDOW", self._close)
+
+        self._build_ui()
+        self._update_stats()
+
+    def _close(self):
+        """Close the window."""
+        self.destroy()
+
+    def _build_ui(self):
+        # Main layout
+        self.columnconfigure(0, weight=1)
+        self.rowconfigure(1, weight=1)
+
+        # Header
+        header = ctk.CTkFrame(self, fg_color=("transparent"))
+        header.grid(row=0, column=0, sticky="ew", padx=10, pady=(10, 5))
+
+        title = ctk.CTkLabel(
+            header,
+            text="🧠 RAG Configuration",
+            font=ctk.CTkFont(size=20, weight="bold"),
+            text_color=("white", "white")
+        )
+        title.pack()
+
+        # Main content with tabs
+        notebook = ctk.CTkTabview(self)
+        notebook.grid(row=1, column=0, sticky="nsew", padx=10, pady=(0, 10))
+        notebook.add("Settings", "settings")
+        notebook.add("Documents", "documents")
+        notebook.add("Statistics", "statistics")
+
+        # Settings Tab
+        self._build_settings_tab(notebook.tab("settings"))
+
+        # Documents Tab
+        self._build_documents_tab(notebook.tab("documents"))
+
+        # Statistics Tab
+        self._build_statistics_tab(notebook.tab("statistics"))
+
+    def _build_settings_tab(self, parent):
+        parent.columnconfigure(0, weight=1)
+
+        # Enable/Disable RAG
+        enable_frame = ctk.CTkFrame(parent, fg_color=("transparent"))
+        enable_frame.pack(fill="x", padx=10, pady=10)
+
+        self.rag_enabled = ctk.BooleanVar(value=self.rag is not None)
+
+        enable_check = ctk.CTkCheckBox(
+            enable_frame,
+            text="Enable RAG for this conversation",
+            variable=self.rag_enabled,
+            command=self._toggle_rag,
+            font=ctk.CTkFont(size=12, weight="bold")
+        )
+        enable_check.pack(anchor="w")
+
+        # Search Parameters
+        params_frame = ctk.CTkFrame(parent, fg_color=("transparent"))
+        params_frame.pack(fill="x", padx=10, pady=10)
+
+        ctk.CTkLabel(
+            params_frame,
+            text="Search Parameters",
+            font=ctk.CTkFont(size=14, weight="bold"),
+            text_color=("white", "white")
+        ).pack(anchor="w", pady=(0, 10))
+
+        # Top K
+        top_k_frame = ctk.CTkFrame(params_frame, fg_color=("transparent"))
+        top_k_frame.pack(fill="x", pady=5)
+
+        ctk.CTkLabel(
+            top_k_frame,
+            text="Number of Results (Top K):",
+            font=ctk.CTkFont(size=11),
+            anchor="w"
+        ).pack(side="left", padx=(0, 10))
+
+        self.top_k_var = ctk.IntVar(value=5 if self.rag else 5)
+        top_k_spin = ctk.CTkSpinner(
+            top_k_frame,
+            from_=1,
+            to=20,
+            width=60,
+            variable=self.top_k_var,
+            command=self._update_settings
+        )
+        top_k_spin.pack(side="left")
+
+        # Score Threshold
+        score_frame = ctk.CTkFrame(params_frame, fg_color=("transparent"))
+        score_frame.pack(fill="x", pady=5)
+
+        ctk.CTkLabel(
+            score_frame,
+            text="Minimum Score Threshold:",
+            font=ctk.CTkFont(size=11),
+            anchor="w"
+        ).pack(side="left", padx=(0, 10))
+
+        self.score_var = ctk.DoubleVar(value=0.3 if self.rag else 0.3)
+        score_spin = ctk.CTkSpinner(
+            score_frame,
+            from_=0.0,
+            to=1.0,
+            width=60,
+            variable=self.score_var,
+            command=self._update_settings
+        )
+        score_spin.pack(side="left")
+
+        # Chunk Parameters
+        chunk_frame = ctk.CTkFrame(parent, fg_color=("transparent"))
+        chunk_frame.pack(fill="x", padx=10, pady=10)
+
+        ctk.CTkLabel(
+            chunk_frame,
+            text="Chunk Parameters",
+            font=ctk.CTkFont(size=14, weight="bold"),
+            text_color=("white", "white")
+        ).pack(anchor="w", pady=(0, 10))
+
+        # Chunk Size
+        chunk_size_frame = ctk.CTkFrame(chunk_frame, fg_color=("transparent"))
+        chunk_size_frame.pack(fill="x", pady=5)
+
+        ctk.CTkLabel(
+            chunk_size_frame,
+            text="Chunk Size:",
+            font=ctk.CTkFont(size=11),
+            anchor="w"
+        ).pack(side="left", padx=(0, 10))
+
+        self.chunk_size_var = ctk.IntVar(value=1000 if self.rag else 1000)
+        chunk_size_spin = ctk.CTkSpinner(
+            chunk_size_frame,
+            from_=100,
+            to=5000,
+            width=80,
+            variable=self.chunk_size_var,
+            command=self._update_settings
+        )
+        chunk_size_spin.pack(side="left")
+
+        ctk.CTkLabel(
+            chunk_size_frame,
+            text="tokens",
+            font=ctk.CTkFont(size=10),
+            text_color=("gray70", "gray50")
+        ).pack(side="left", padx=(5, 0))
+
+        # Chunk Overlap
+        chunk_overlap_frame = ctk.CTkFrame(chunk_frame, fg_color=("transparent"))
+        chunk_overlap_frame.pack(fill="x", pady=5)
+
+        ctk.CTkLabel(
+            chunk_overlap_frame,
+            text="Chunk Overlap:",
+            font=ctk.CTkFont(size=11),
+            anchor="w"
+        ).pack(side="left", padx=(0, 10))
+
+        self.chunk_overlap_var = ctk.IntVar(value=200 if self.rag else 200)
+        chunk_overlap_spin = ctk.CTkSpinner(
+            chunk_overlap_frame,
+            from_=0,
+            to=1000,
+            width=80,
+            variable=self.chunk_overlap_var,
+            command=self._update_settings
+        )
+        chunk_overlap_spin.pack(side="left")
+
+        ctk.CTkLabel(
+            chunk_overlap_frame,
+            text="tokens",
+            font=ctk.CTkFont(size=10),
+            text_color=("gray70", "gray50")
+        ).pack(side="left", padx=(5, 0))
+
+        # Apply button
+        apply_btn = ctk.CTkButton(
+            parent,
+            text="Apply Settings",
+            command=self._apply_settings,
+            font=ctk.CTkFont(size=12, weight="bold"),
+            fg_color=("#4a9eff", "#3b7ac7")
+        )
+        apply_btn.pack(pady=10)
+
+    def _build_documents_tab(self, parent):
+        parent.columnconfigure(0, weight=1)
+        parent.rowconfigure(1, weight=1)
+
+        # Header
+        header = ctk.CTkFrame(parent, fg_color=("transparent"))
+        header.grid(row=0, column=0, sticky="ew", padx=10, pady=(10, 5))
+
+        ctk.CTkLabel(
+            header,
+            text="📚 Loaded Documents",
+            font=ctk.CTkFont(size=14, weight="bold"),
+            text_color=("white", "white")
+        ).pack()
+
+        # Document list
+        list_frame = ctk.CTkScrollableFrame(parent, fg_color=("transparent"))
+        list_frame.grid(row=1, column=0, sticky="nsew", padx=10, pady=5)
+
+        self.doc_listbox = ctk.CTkTextbox(list_frame, wrap="word", height=200)
+        self.doc_listbox.pack(fill="both", expand=True)
+
+        # Buttons
+        btn_frame = ctk.CTkFrame(parent, fg_color=("transparent"))
+        btn_frame.grid(row=2, column=0, sticky="ew", padx=10, pady=(0, 10))
+
+        refresh_btn = ctk.CTkButton(
+            btn_frame,
+            text="🔄 Refresh",
+            command=self._update_docs_list,
+            width=100,
+            fg_color=("#9b59b6", "#7d3c98")
+        )
+        refresh_btn.pack(side="left", padx=(0, 10))
+
+        clear_btn = ctk.CTkButton(
+            btn_frame,
+            text="🗑️ Clear All",
+            command=self._clear_all_docs,
+            width=100,
+            fg_color=("#ff5555", "#cc4444")
+        )
+        clear_btn.pack(side="left")
+
+    def _build_statistics_tab(self, parent):
+        parent.columnconfigure(0, weight=1)
+
+        stats_frame = ctk.CTkFrame(parent, fg_color=("transparent"))
+        stats_frame.pack(fill="both", expand=True, padx=10, pady=10)
+
+        ctk.CTkLabel(
+            stats_frame,
+            text="📊 RAG Statistics",
+            font=ctk.CTkFont(size=14, weight="bold"),
+            text_color=("white", "white")
+        ).pack(anchor="w", pady=(0, 20))
+
+        self.stats_text = ctk.CTkTextbox(stats_frame, wrap="word", height=300)
+        self.stats_text.pack(fill="both", expand=True)
+
+        refresh_btn = ctk.CTkButton(
+            parent,
+            text="🔄 Refresh Stats",
+            command=self._update_stats,
+            width=120,
+            fg_color=("#27ae60", "#229954")
+        )
+        refresh_btn.pack(pady=(0, 10))
+
+    def _toggle_rag(self):
+        """Enable/disable RAG."""
+        if self.rag_enabled.get():
+            if not self.rag:
+                # Initialize RAG if not exists
+                from config import DEFAULT_CONFIG
+                self.chat_ui.llm.rag = RAG(
+                    DEFAULT_CONFIG["embedding_model"],
+                    DEFAULT_CONFIG["rag_path"],
+                    DEFAULT_CONFIG["max_chunk_size"]
+                )
+        else:
+            # Disable RAG
+            if self.chat_ui.llm.rag:
+                self.chat_ui.llm.rag.remove_conversation(self.chat_ui.conversation_id)
+
+        self._update_stats()
+
+    def _update_settings(self, *args):
+        """Update settings when values change."""
+        pass  # Real-time update can be implemented here if needed
+
+    def _apply_settings(self):
+        """Apply all settings."""
+        if self.rag and self.rag_enabled.get():
+            self.rag.top_k = self.top_k_var.get()
+            self.rag.score_threshold = self.score_var.get()
+            self.rag.chunk_size = self.chunk_size_var.get()
+            self.rag.chunk_overlap = self.chunk_overlap_var.get()
+            self.chat_ui.add_message("System", "✅ RAG settings updated successfully!")
+        else:
+            self.chat_ui.add_message("System", "⚠️ Please enable RAG first!")
+
+    def _update_docs_list(self):
+        """Update the documents list."""
+        self.doc_listbox.delete("1.0", "end")
+
+        if self.rag and self.rag_enabled.get():
+            docs = self.rag.get_conversation_documents(self.chat_ui.conversation_id)
+            if docs:
+                for doc in docs:
+                    self.doc_listbox.insert("end", f"📄 {doc}\n")
+            else:
+                self.doc_listbox.insert("end", "No documents loaded for this conversation.")
+        else:
+            self.doc_listbox.insert("end", "RAG is disabled or no documents available.")
+
+    def _clear_all_docs(self):
+        """Clear all documents from current conversation."""
+        if self.rag and self.rag_enabled.get():
+            self.rag.remove_conversation(self.chat_ui.conversation_id)
+            self._update_docs_list()
+            self._update_stats()
+            self.chat_ui.add_message("System", "🗑️ All documents cleared from this conversation.")
+
+    def _update_stats(self):
+        """Update statistics display."""
+        self.stats_text.delete("1.0", "end")
+
+        if self.rag and self.rag_enabled.get():
+            # Get current conversation stats
+            docs = self.rag.get_conversation_documents(self.chat_ui.conversation_id)
+            chunks = self.rag.chunks.get(self.chat_ui.conversation_id, {})
+
+            stats = f"""
+RAG Status: ✅ ENABLED
+
+Current Conversation: {self.chat_ui.conversation_id[:8]}...
+
+Documents Loaded: {len(docs)}
+Total Chunks: {len(chunks)}
+
+Current Settings:
+• Top K: {self.top_k_var.get()}
+• Score Threshold: {self.score_var.get():.2f}
+• Chunk Size: {self.chunk_size_var.get()} tokens
+• Chunk Overlap: {self.chunk_overlap_var.get()} tokens
+
+Global Stats:
+• Total Documents: {len(self.rag.document_store)}
+• Total Chunks: {len(self.rag.chunks)}
+• Embedding Model: {self.rag.embedding_model}
+• Index Refreshed: {self.rag.last_refresh_time}
+"""
+        else:
+            stats = """
+RAG Status: ❌ DISABLED
+
+RAG is not enabled for this conversation.
+Enable it in the Settings tab to use RAG functionality.
+"""
+
+        self.stats_text.insert("1.0", stats.strip())
 

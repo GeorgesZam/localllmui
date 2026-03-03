@@ -69,7 +69,7 @@ class CodeDetector:
     CODE_PATTERNS = [
         r'\bcreate\s+(a\s+)?(pdf|word|excel|powerpoint|document|spreadsheet|presentation)',
         r'\bgenerate\s+(a\s+)?(pdf|word|excel|powerpoint|docx|xlsx|pptx)',
-        r'\bmake\s+(a\s+)?(pdf|word|excel|powerpoint)',
+        r'\bmake\s+(a\s+)?(pdf|word|excel|powerpoint|animation|plot|chart|graph)',
         r'\bbuild\s+(a\s+)?(report|chart|graph|dashboard|image|plot)',
         r'\banalyze\s+(data|csv|excel|spreadsheet)',
         r'\bprocess\s+(data|csv|excel)',
@@ -84,6 +84,10 @@ class CodeDetector:
         r'\brun\s+(python\s+)?code',
         r'\bexecute\s+(python\s+)?code',
         r'\bwrite\s+(python\s+)?code',
+        r'\bcan\s+you\s+(run|execute|write|create)\s+',
+        r'\bhelp\s+me\s+(run|execute|write|create)\s+',
+        r'\b(manin|matplotlib|seaborn|plotly|numpy|pandas)\b',
+        r'\banimation\b',
     ]
 
     @classmethod
@@ -94,6 +98,34 @@ class CodeDetector:
             if re.search(pattern, message_lower):
                 return True, f"Matched pattern: {pattern}"
         return False, ""
+
+    @classmethod
+    def detect_code_in_response(cls, response: str) -> Tuple[bool, str, str]:
+        """
+        Detect if the response contains executable code blocks.
+        Returns: (has_code, language, code_content)
+        """
+        # Check for markdown code blocks with language specifiers
+        code_block_pattern = r'```(\w*)\n(.*?)\n```'
+        matches = re.findall(code_block_pattern, response, re.DOTALL)
+
+        if matches:
+            # Prioritize executable languages
+            executable_languages = ['python', 'py', 'javascript', 'js', 'typescript', 'ts', 'ruby', 'php', 'perl', 'bash', 'sh']
+
+            for lang, code in matches:
+                lang_lower = lang.lower().strip()
+                if lang_lower in executable_languages or lang_lower == '':
+                    return True, lang if lang else 'python', code.strip()
+
+            # If no executable language found, return the first code block
+            return True, matches[0][0] if matches[0][0] else 'text', matches[0][1].strip()
+
+        # Check for inline code indicators
+        if re.search(r'\b(import\s+|from\s+\w+\s+import|def\s+\w+\s*\(|class\s+\w+)', response):
+            return True, 'python', response
+
+        return False, '', ''
 
 
 class ResourceMonitor:

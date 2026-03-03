@@ -53,6 +53,9 @@ class App(ctk.CTk):
         self._create_ui()
         self._initialize_models()
 
+        # Attach UI to LLM engine events
+        self.llm.attach(self.ui)
+
     def _create_ui(self):
         self.ui = ChatUI(
             self,
@@ -196,12 +199,21 @@ class App(ctk.CTk):
 
         if added > 0:
             self.llm.rag.add_documents(list(files))
+            # Add mapping from conversation to documents
+            for doc_id in conv.document_ids[-added:]:  # Get the newly added documents
+                self.llm.rag.add_document_to_conversation(conv.id, doc_id)
+            self.llm.rag.add_conversation_mapping(conv.id, conv.document_ids)
             self.ui.update_doc_count(len(conv.document_ids))
+            self.ui.update_doc_info()
             self._update_sidebar()
 
     def _on_new_chat(self):
-        self.conv_manager.create_conversation()
+        conv = self.conv_manager.create_conversation()
         self.ui.clear_chat()
+        # Update RAG conversation mapping
+        if hasattr(self.llm, 'rag') and self.llm.rag:
+            self.llm.rag.add_conversation_mapping(conv.id, conv.document_ids)
+        self.ui.update_doc_info()
         self._update_sidebar()
 
     def _on_select_chat(self, conv_id: str):
@@ -209,7 +221,11 @@ class App(ctk.CTk):
         if conv:
             self.ui.clear_chat()
             self.ui.load_messages(conv.messages)
+            # Update RAG conversation mapping
+            if hasattr(self.llm, 'rag') and self.llm.rag:
+                self.llm.rag.add_conversation_mapping(conv_id, conv.document_ids)
             self.ui.update_doc_count(len(conv.document_ids))
+            self.ui.update_doc_info()
             self._update_sidebar()
 
     def _on_delete_chat(self, conv_id: str):

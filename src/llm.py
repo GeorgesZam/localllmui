@@ -324,6 +324,21 @@ Answer based on context. If not found, say so."""
             if len(self.history) > self._max_history * 2:
                 self.history = self.history[-self._max_history:]
 
+        # Auto-detect code in response if not already in code execution mode
+        if not self._current_stats.has_code_execution and self.code_execution_enabled:
+            try:
+                from code_executor import CodeDetector
+                has_code, language, code_content = CodeDetector.detect_code_in_response(full_response)
+                if has_code and language in ['python', 'py', 'javascript', 'js', '']:
+                    # Notify that code was detected and can be executed
+                    self.notify(Event('code_detected', {
+                        'language': language,
+                        'code': code_content,
+                        'full_response': full_response
+                    }))
+            except ImportError:
+                pass
+
         # Notify generation complete
         self.notify(Event('generation_complete', {
             'tokens': self._current_stats.tokens_generated,

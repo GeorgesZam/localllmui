@@ -39,8 +39,8 @@ class ConfigManager(metaclass=SingletonMeta):
 
         # CPU Configuration
         self._cpu_count = multiprocessing.cpu_count()
-        self.context_size = 2048
-        self.max_tokens = 384
+        self.context_size = 32768  # 32k context window
+        self.max_tokens = 4096  # Allow longer responses
         self.threads = max(4, self._cpu_count - 2)
         self.gpu_layers = -1
 
