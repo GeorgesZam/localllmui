@@ -1,6 +1,7 @@
 import os
 import re
 from pathlib import Path
+from dataclasses import replace
 import customtkinter as ctk
 from tkinter import filedialog, messagebox, Tk
 from typing import Callable, Optional
@@ -938,29 +939,30 @@ class SkillsWindow(ctk.CTkToplevel):
 
 
 class ViewSkillDialog(ctk.CTkToplevel):
-    """Dialog for viewing and editing an existing skill."""
+    """Enhanced dialog for viewing and editing an existing skill with tabs."""
 
     def __init__(self, parent, skills_manager, skill, on_skill_updated=None):
         super().__init__(parent)
 
         self.skills_manager = skills_manager
         self.skill = skill
+        self.original_skill = self._create_skill_copy(skill)
         self.on_skill_updated = on_skill_updated
         self.selected_image_path = skill.image_path
 
-        self.title(f"✏️ Edit Skill - {skill.name}")
-        self.geometry("600x800")
+        # Load existing skill data
+        self.skill_instructions = self.skills_manager.get_skill_instructions(skill.id) or ""
+        self.raw_content = self.skills_manager.get_skill_content(skill.id) or ""
+
+        self.title(f"✏️ Edit: {skill.name}")
+        self.geometry("750x750")
         self.configure(fg_color="#1a1a2e")
         self.protocol("WM_DELETE_WINDOW", self._close_window)
 
-        # Make window resizable
-        self.minsize(550, 700)
+        self.minsize(700, 650)
         self.resizable(True, True)
 
-        # Load existing skill data
-        skill_instructions = self.skills_manager.get_skill_instructions(skill.id) or ""
-
-        self._create_widgets(skill_instructions)
+        self._create_widgets()
         self._center_window()
 
         try:
@@ -968,6 +970,11 @@ class ViewSkillDialog(ctk.CTkToplevel):
             self.grab_set()
         except Exception:
             pass
+
+    def _create_skill_copy(self, skill):
+        """Create a copy of the skill for reset functionality."""
+        from dataclasses import replace
+        return replace(skill)
 
     def _center_window(self):
         """Center the dialog on the parent window."""
@@ -988,192 +995,489 @@ class ViewSkillDialog(ctk.CTkToplevel):
         except Exception:
             pass
 
-    def _create_widgets(self, instructions_content):
-        """Create the dialog widgets."""
-        # Configure grid layout
+    def _create_widgets(self):
+        """Create the dialog widgets with tabs."""
         self.columnconfigure(0, weight=1)
         self.rowconfigure(1, weight=1)
         self.rowconfigure(2, weight=0)
 
-        # Header
-        header = ctk.CTkFrame(self, fg_color="transparent", height=60)
-        header.grid(row=0, column=0, sticky="ew", padx=30, pady=(30, 10))
+        # Header with skill info
+        self._create_header()
+
+        # Tabbed interface
+        self.tabview = ctk.CTkTabview(
+            self,
+            fg_color="#252535",
+            segmented_button_fg_color="#1e1e2e",
+            segmented_button_selected_color="#4a9eff",
+            segmented_button_selected_hover_color="#3b7ac7",
+            segmented_button_unselected_color="#1e1e2e",
+            segmented_button_unselected_hover_color="#2a2a3a",
+            corner_radius=10,
+        )
+        self.tabview.grid(row=1, column=0, sticky="nsew", padx=30, pady=(0, 10))
+
+        # Create tabs
+        self.tabview.add("✏️ Edit")
+        self.tabview.add("👁️ Preview")
+        self.tabview.add("📄 Raw Content")
+
+        # Edit tab
+        self._create_edit_tab()
+
+        # Preview tab
+        self._create_preview_tab()
+
+        # Raw content tab
+        self._create_raw_content_tab()
+
+        # Bottom action buttons
+        self._create_action_buttons()
+
+    def _create_header(self):
+        """Create the header with skill overview."""
+        header = ctk.CTkFrame(self, fg_color="transparent", height=80)
+        header.grid(row=0, column=0, sticky="ew", padx=30, pady=(20, 5))
         header.pack_propagate(False)
 
-        ctk.CTkLabel(
-            header,
-            text=f"✏️ Edit Skill: {self.skill.name}",
-            font=ctk.CTkFont(size=20, weight="bold"),
-            text_color="#4a9eff",
-        ).pack(pady=10)
+        # Title row
+        title_row = ctk.CTkFrame(header, fg_color="transparent")
+        title_row.pack(fill="x", pady=(0, 5))
 
-        # Scrollable container for form
-        scroll_container = ctk.CTkScrollableFrame(
-            self,
+        # Skill icon and name
+        icon_label = ctk.CTkLabel(
+            title_row,
+            text=self.skill.icon,
+            font=ctk.CTkFont(size=28)
+        )
+        icon_label.pack(side="left", padx=(0, 10))
+
+        name_label = ctk.CTkLabel(
+            title_row,
+            text=self.skill.name,
+            font=ctk.CTkFont(size=22, weight="bold"),
+            text_color="#4a9eff"
+        )
+        name_label.pack(side="left")
+
+        # Status badge
+        status_text = "✓ Enabled" if self.skill.enabled else "○ Disabled"
+        status_color = "#50fa7b" if self.skill.enabled else "#666666"
+        status_badge = ctk.CTkLabel(
+            title_row,
+            text=status_text,
+            font=ctk.CTkFont(size=11, weight="bold"),
+            text_color=status_color,
+            fg_color="#2a2a3a",
+            corner_radius=5,
+            padx=10,
+            pady=3
+        )
+        status_badge.pack(side="right")
+
+        # Skill ID row
+        id_row = ctk.CTkFrame(header, fg_color="transparent")
+        id_row.pack(fill="x")
+
+        ctk.CTkLabel(
+            id_row,
+            text=f"🆔 ID: {self.skill.id}",
+            font=ctk.CTkFont(size=11, family="Consolas"),
+            text_color="#888888"
+        ).pack(side="left", padx=(45, 0))
+
+        category_badge = ctk.CTkLabel(
+            id_row,
+            text=f"📁 {self.skill.category}",
+            font=ctk.CTkFont(size=10),
+            text_color="#aaaaaa",
+            fg_color="#2a2a3a",
+            corner_radius=4,
+            padx=8,
+            pady=2
+        )
+        category_badge.pack(side="right")
+
+    def _create_edit_tab(self):
+        """Create the edit tab with form fields."""
+        tab = self.tabview.tab("✏️ Edit")
+
+        scroll = ctk.CTkScrollableFrame(
+            tab,
             fg_color="transparent",
             scrollbar_button_color="#4a9eff",
             scrollbar_button_hover_color="#3b7ac7",
-            height=450
         )
-        scroll_container.grid(row=1, column=0, sticky="nsew", padx=30, pady=(0, 5))
+        scroll.pack(fill="both", expand=True, padx=10, pady=10)
 
-        form = ctk.CTkFrame(scroll_container, fg_color="#252535", corner_radius=15)
-        form.pack(fill="x", pady=(0, 20))
+        form = ctk.CTkFrame(scroll, fg_color="#252535", corner_radius=12)
+        form.pack(fill="x", pady=(0, 15))
 
-        self._create_form_field(form, "Skill Name *", "e.g., Image Generator", 20, self.skill.name)
+        # Form fields
+        self._create_form_field(form, "Skill Name *", "e.g., Image Generator", 15, self.skill.name)
         self.name_entry = self.last_entry
 
         self._create_form_field(
-            form, "Description *", "Brief description of what this skill does", 15, self.skill.description
+            form, "Description *", "Brief description of what this skill does", 10, self.skill.description
         )
         self.desc_entry = self.last_entry
 
-        self._create_form_field(form, "Category *", "", 15, self.skill.category)
-        self.category_combo = self.last_entry
-        self.category_combo.configure(
-            values=[
-                "General",
-                "AI",
-                "Documents",
-                "Development",
-                "Visualization",
-                "Tools",
-            ],
-            font=ctk.CTkFont(size=12),
+        # Category dropdown
+        ctk.CTkLabel(
+            form,
+            text="Category *",
+            font=ctk.CTkFont(size=11, weight="bold"),
+            text_color="#ffffff",
+            anchor="w"
+        ).pack(fill="x", padx=15, pady=(10, 5))
+
+        self.category_combo = ctk.CTkComboBox(
+            form,
+            values=["General", "AI", "Documents", "Development", "Visualization", "Tools"],
+            font=ctk.CTkFont(size=11),
             fg_color="#1e1e2e",
             button_color="#4a9eff",
             hover_color="#3b7ac7",
             border_color="#3a3a4a",
             dropdown_fg_color="#252535",
             text_color="#ffffff",
-            height=40,
+            dropdown_text_color="#ffffff",
+            height=36
         )
+        self.category_combo.pack(fill="x", padx=15)
+        self.category_combo.set(self.skill.category)
 
-        self._create_form_field(form, "Icon Emoji", "🔧", 15, self.skill.icon)
-        self.icon_entry = self.last_entry
+        # Icon selection
+        self._create_icon_section(form)
 
-        icon_frame = ctk.CTkFrame(form, fg_color="#1e1e2e")
-        icon_frame.pack(fill="x", padx=20, pady=(5, 0))
+        # Image upload
+        self._create_image_section(form)
 
-        for icon in ["🔧", "🎯", "📝", "🧠", "💻", "🎨", "📊", "🔍", "⚡", "🚀"]:
+        # Content editor
+        self._create_content_section(form)
+
+    def _create_icon_section(self, parent):
+        """Create icon selection section."""
+        ctk.CTkLabel(
+            parent,
+            text="Icon Emoji",
+            font=ctk.CTkFont(size=11, weight="bold"),
+            text_color="#ffffff",
+            anchor="w"
+        ).pack(fill="x", padx=15, pady=(15, 5))
+
+        icon_container = ctk.CTkFrame(parent, fg_color="transparent")
+        icon_container.pack(fill="x", padx=15)
+
+        self.icon_entry = ctk.CTkEntry(
+            icon_container,
+            font=ctk.CTkFont(size=11),
+            fg_color="#1e1e2e",
+            border_color="#3a3a4a",
+            text_color="#ffffff",
+            height=36
+        )
+        self.icon_entry.pack(side="left", fill="x", expand=True, padx=(0, 10))
+        self.icon_entry.insert(0, self.skill.icon)
+
+        icon_picker = ctk.CTkFrame(parent, fg_color="#1e1e2e", corner_radius=8)
+        icon_picker.pack(fill="x", padx=15, pady=(5, 0))
+
+        for icon in ["🔧", "🎯", "📝", "🧠", "💻", "🎨", "📊", "🔍", "⚡", "🚀", "🤖", "🔬", "📈", "🎬", "🗨️"]:
             ctk.CTkButton(
-                icon_frame,
+                icon_picker,
                 text=icon,
-                width=35,
-                height=35,
+                width=36,
+                height=36,
                 font=ctk.CTkFont(size=14),
-                fg_color="#3a3a4a",
+                fg_color="transparent",
                 hover_color="#4a9eff",
                 text_color="#ffffff",
-                corner_radius=8,
+                corner_radius=6,
                 command=lambda i=icon: self._select_icon(i),
-            ).pack(side="left", padx=2, pady=5)
+            ).pack(side="left", padx=2, pady=4)
 
+    def _create_image_section(self, parent):
+        """Create image upload section."""
         ctk.CTkLabel(
-            form,
-            text="Skill Icon (Image)",
-            font=ctk.CTkFont(size=12, weight="bold"),
+            parent,
+            text="Custom Icon Image",
+            font=ctk.CTkFont(size=11, weight="bold"),
             text_color="#ffffff",
-            anchor="w",
-        ).pack(fill="x", padx=20, pady=(15, 5))
+            anchor="w"
+        ).pack(fill="x", padx=15, pady=(15, 5))
 
-        image_btn_frame = ctk.CTkFrame(form, fg_color="transparent")
-        image_btn_frame.pack(fill="x", padx=20)
+        image_frame = ctk.CTkFrame(parent, fg_color="transparent")
+        image_frame.pack(fill="x", padx=15)
 
         ctk.CTkButton(
-            image_btn_frame,
-            text="📁 Change Image",
+            image_frame,
+            text="📁 Choose Image",
             font=ctk.CTkFont(size=11),
             fg_color="#4a9eff",
             hover_color="#3b7ac7",
-            width=120,
-            height=35,
+            width=110,
+            height=36,
             corner_radius=8,
             command=self._upload_image,
         ).pack(side="left", padx=(0, 10))
 
         self.image_status = ctk.CTkLabel(
-            image_btn_frame,
-            text="Current: " + (Path(self.skill.image_path).name if self.skill.image_path else "No image"),
+            image_frame,
+            text="Current: " + (Path(self.skill.image_path).name if self.skill.image_path else "No custom image"),
             font=ctk.CTkFont(size=10),
-            text_color="#666666",
+            text_color="#888888"
         )
         self.image_status.pack(side="left", pady=5)
 
+        # Remove image button if there is one
+        if self.skill.image_path:
+            ctk.CTkButton(
+                image_frame,
+                text="🗑️",
+                width=36,
+                height=36,
+                fg_color="#ff5555",
+                hover_color="#cc4444",
+                text_color="#ffffff",
+                corner_radius=8,
+                font=ctk.CTkFont(size=12),
+                command=self._remove_image,
+            ).pack(side="right")
+
+    def _create_content_section(self, parent):
+        """Create content editor section."""
         ctk.CTkLabel(
-            form,
-            text="Instructions / Content *",
-            font=ctk.CTkFont(size=12, weight="bold"),
+            parent,
+            text="Skill Instructions *",
+            font=ctk.CTkFont(size=11, weight="bold"),
             text_color="#ffffff",
-            anchor="w",
-        ).pack(fill="x", padx=20, pady=(15, 5))
+            anchor="w"
+        ).pack(fill="x", padx=15, pady=(15, 5))
+
+        help_text = ctk.CTkLabel(
+            parent,
+            text="💡 These are the instructions the AI will follow when this skill is enabled",
+            font=ctk.CTkFont(size=9),
+            text_color="#888888",
+            anchor="w"
+        )
+        help_text.pack(fill="x", padx=15, pady=(0, 5))
 
         self.content_text = ctk.CTkTextbox(
-            form,
-            font=ctk.CTkFont(size=11),
+            parent,
+            font=ctk.CTkFont(family="Consolas", size=11),
             fg_color="#1e1e2e",
             border_color="#3a3a4a",
             text_color="#ffffff",
+            height=180,
+        )
+        self.content_text.pack(fill="x", padx=15, pady=(0, 15))
+        self.content_text.insert("1.0", self.skill_instructions)
+
+    def _create_preview_tab(self):
+        """Create the preview tab showing how the skill appears."""
+        tab = self.tabview.tab("👁️ Preview")
+
+        scroll = ctk.CTkScrollableFrame(
+            tab,
+            fg_color="transparent",
+            scrollbar_button_color="#4a9eff",
+            scrollbar_button_hover_color="#3b7ac7",
+        )
+        scroll.pack(fill="both", expand=True, padx=10, pady=10)
+
+        # Preview card
+        preview_card = ctk.CTkFrame(scroll, fg_color="#2a2a3a", corner_radius=12)
+        preview_card.pack(fill="x", pady=(0, 15))
+
+        # Preview header
+        header = ctk.CTkFrame(preview_card, fg_color="#1e1e2e", corner_radius=12)
+        header.pack(fill="x", padx=2, pady=2)
+
+        header_content = ctk.CTkFrame(header, fg_color="transparent")
+        header_content.pack(fill="x", padx=15, pady=12)
+
+        # Icon and name
+        ctk.CTkLabel(
+            header_content,
+            text=self.skill.icon,
+            font=ctk.CTkFont(size=24)
+        ).pack(side="left", padx=(0, 10))
+
+        ctk.CTkLabel(
+            header_content,
+            text=self.skill.name,
+            font=ctk.CTkFont(size=16, weight="bold"),
+            text_color="#ffffff"
+        ).pack(side="left")
+
+        # Content
+        content = ctk.CTkFrame(preview_card, fg_color="transparent")
+        content.pack(fill="x", padx=15, pady=(10, 15))
+
+        ctk.CTkLabel(
+            content,
+            text="Description:",
+            font=ctk.CTkFont(size=11, weight="bold"),
+            text_color="#4a9eff",
+            anchor="w"
+        ).pack(fill="x", pady=(0, 5))
+
+        ctk.CTkLabel(
+            content,
+            text=self.skill.description,
+            font=ctk.CTkFont(size=11),
+            text_color="#cccccc",
+            anchor="w",
+            wraplength=600
+        ).pack(fill="x", pady=(0, 10))
+
+        ctk.CTkLabel(
+            content,
+            text="Category:",
+            font=ctk.CTkFont(size=11, weight="bold"),
+            text_color="#4a9eff",
+            anchor="w"
+        ).pack(fill="x", pady=(0, 5))
+
+        ctk.CTkLabel(
+            content,
+            text=self.skill.category,
+            font=ctk.CTkFont(size=11),
+            text_color="#cccccc",
+            anchor="w"
+        ).pack(fill="x", pady=(0, 10))
+
+        ctk.CTkLabel(
+            content,
+            text="Instructions Preview:",
+            font=ctk.CTkFont(size=11, weight="bold"),
+            text_color="#4a9eff",
+            anchor="w"
+        ).pack(fill="x", pady=(0, 5))
+
+        instructions_preview = ctk.CTkTextbox(
+            content,
+            font=ctk.CTkFont(family="Consolas", size=10),
+            fg_color="#1e1e2e",
+            border_color="#3a3a4a",
+            text_color="#aaaaaa",
             height=150,
         )
-        self.content_text.pack(fill="x", padx=20, pady=(0, 20))
-        self.content_text.insert("1.0", instructions_content)
+        instructions_preview.pack(fill="x", pady=(0, 5))
+        instructions_preview.insert("1.0", self.skill_instructions)
+        instructions_preview.configure(state="disabled")
 
-        # Buttons at bottom (always visible)
-        button_frame = ctk.CTkFrame(self, fg_color="#252535", corner_radius=15)
-        button_frame.grid(row=2, column=0, sticky="ew", padx=30, pady=(5, 25))
+    def _create_raw_content_tab(self):
+        """Create the raw content tab showing the actual markdown."""
+        tab = self.tabview.tab("📄 Raw Content")
 
-        # Center the buttons
+        # Info bar
+        info_bar = ctk.CTkFrame(
+            tab,
+            fg_color="#2a2a3a",
+            corner_radius=8
+        )
+        info_bar.pack(fill="x", padx=10, pady=(10, 5))
+
+        ctk.CTkLabel(
+            info_bar,
+            text="📄 This is the actual markdown content stored in the skill file",
+            font=ctk.CTkFont(size=10),
+            text_color="#888888"
+        ).pack(side="left", padx=10, pady=8)
+
+        ctk.CTkLabel(
+            info_bar,
+            text=f"{len(self.raw_content)} characters",
+            font=ctk.CTkFont(size=10),
+            text_color="#666666"
+        ).pack(side="right", padx=10, pady=8)
+
+        # Raw content viewer
+        raw_viewer = ctk.CTkTextbox(
+            tab,
+            font=ctk.CTkFont(family="Consolas", size=10),
+            fg_color="#1e1e2e",
+            border_color="#3a3a4a",
+            text_color="#cccccc",
+        )
+        raw_viewer.pack(fill="both", expand=True, padx=10, pady=(0, 10))
+        raw_viewer.insert("1.0", self.raw_content)
+        raw_viewer.configure(state="disabled")
+
+    def _create_action_buttons(self):
+        """Create bottom action buttons."""
+        button_frame = ctk.CTkFrame(self, fg_color="#252535", corner_radius=12)
+        button_frame.grid(row=2, column=0, sticky="ew", padx=30, pady=(5, 20))
+
         button_inner = ctk.CTkFrame(button_frame, fg_color="transparent")
-        button_inner.pack(expand=True, fill="both", padx=20, pady=20)
+        button_inner.pack(expand=True, fill="both", padx=20, pady=15)
 
+        # Reset button
+        ctk.CTkButton(
+            button_inner,
+            text="↺ Reset",
+            font=ctk.CTkFont(size=11, weight="bold"),
+            fg_color="#e67e22",
+            hover_color="#d35400",
+            text_color="#ffffff",
+            width=100,
+            height=40,
+            corner_radius=8,
+            command=self._reset_changes,
+        ).pack(side="left", padx=5)
+
+        # Cancel button
         ctk.CTkButton(
             button_inner,
             text="✕ Cancel",
-            font=ctk.CTkFont(size=12, weight="bold"),
+            font=ctk.CTkFont(size=11, weight="bold"),
             fg_color="#3a3a4a",
             hover_color="#4a4a5a",
             text_color="#ffffff",
-            width=140,
-            height=45,
-            corner_radius=10,
+            width=120,
+            height=40,
+            corner_radius=8,
             command=self._close_window,
-        ).pack(side="left", padx=10)
+        ).pack(side="left", padx=5)
 
+        # Save button
         ctk.CTkButton(
             button_inner,
             text="💾 Save Changes",
-            font=ctk.CTkFont(size=13, weight="bold"),
+            font=ctk.CTkFont(size=12, weight="bold"),
             fg_color="#50fa7b",
             hover_color="#40c969",
             text_color="#000000",
             width=150,
-            height=45,
-            corner_radius=10,
+            height=40,
+            corner_radius=8,
             command=self._update_skill,
-        ).pack(side="left", padx=10)
+        ).pack(side="left", padx=5)
 
     def _create_form_field(self, parent, label_text, placeholder, top_padding, default_value=""):
         """Helper to create form labels and entries."""
         ctk.CTkLabel(
             parent,
             text=label_text,
-            font=ctk.CTkFont(size=12, weight="bold"),
+            font=ctk.CTkFont(size=11, weight="bold"),
             text_color="#ffffff",
-            anchor="w",
-        ).pack(fill="x", padx=20, pady=(top_padding, 5))
+            anchor="w"
+        ).pack(fill="x", padx=15, pady=(top_padding, 5))
 
         self.last_entry = ctk.CTkEntry(
             parent,
             placeholder_text=placeholder,
-            font=ctk.CTkFont(size=12),
+            font=ctk.CTkFont(size=11),
             fg_color="#1e1e2e",
             border_color="#3a3a4a",
             text_color="#ffffff",
             placeholder_text_color="#666666",
-            height=40,
+            height=36
         )
-        self.last_entry.pack(fill="x", padx=20)
+        self.last_entry.pack(fill="x", padx=15)
         if default_value:
             self.last_entry.insert(0, default_value)
 
@@ -1199,8 +1503,40 @@ class ViewSkillDialog(ctk.CTkToplevel):
             self.selected_image_path = file_path
             filename = Path(file_path).name
             self.image_status.configure(
-                text=f"✓ {filename[:30]}..." if len(filename) > 30 else f"✓ {filename}",
+                text=f"✓ {filename[:25]}..." if len(filename) > 25 else f"✓ {filename}",
                 text_color="#50fa7b",
+            )
+
+    def _remove_image(self):
+        """Remove the custom image."""
+        if messagebox.askyesno("Remove Image", "Remove the custom icon image?"):
+            self.selected_image_path = None
+            self.image_status.configure(
+                text="No custom image",
+                text_color="#888888"
+            )
+
+    def _reset_changes(self):
+        """Reset all fields to original values."""
+        if messagebox.askyesno("Reset Changes", "Reset all fields to their original values?"):
+            self.name_entry.delete(0, "end")
+            self.name_entry.insert(0, self.original_skill.name)
+
+            self.desc_entry.delete(0, "end")
+            self.desc_entry.insert(0, self.original_skill.description)
+
+            self.category_combo.set(self.original_skill.category)
+
+            self.icon_entry.delete(0, "end")
+            self.icon_entry.insert(0, self.original_skill.icon)
+
+            self.content_text.delete("1.0", "end")
+            self.content_text.insert("1.0", self.skill_instructions)
+
+            self.selected_image_path = self.original_skill.image_path
+            self.image_status.configure(
+                text="Current: " + (Path(self.original_skill.image_path).name if self.original_skill.image_path else "No custom image"),
+                text_color="#888888"
             )
 
     def _update_skill(self):
