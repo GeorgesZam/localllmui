@@ -151,6 +151,25 @@ class SkillsManager:
             return skill_file.read_text()
         return None
 
+    def get_skill_instructions(self, skill_id: str) -> Optional[str]:
+        """Extract the instructions section from a skill file."""
+        content = self.get_skill_content(skill_id)
+        if not content:
+            return None
+
+        lines = content.split("\n")
+        instructions = []
+        in_instructions = False
+
+        for line in lines:
+            if line.startswith("## Instructions:"):
+                in_instructions = True
+                continue
+            if in_instructions:
+                instructions.append(line)
+
+        return "\n".join(instructions).strip() if instructions else None
+
     def create_skill(
         self,
         name: str,
@@ -209,6 +228,67 @@ class SkillsManager:
         except Exception as e:
             print(f"[Skills] Error creating skill: {e}")
             return None
+
+    def update_skill(
+        self,
+        skill_id: str,
+        name: str,
+        description: str,
+        category: str,
+        icon: str,
+        content: str,
+        image_path: Optional[str] = None,
+    ) -> bool:
+        """Update an existing skill."""
+        if skill_id not in self.skills:
+            return False
+
+        try:
+            skill_file = self.skills_dir / f"skill_{skill_id}.md"
+            skill_content = f"""# {name}
+
+## Description:
+{description}
+
+## Use Cases:
+- Add specific use cases here
+
+## Instructions:
+{content}
+"""
+            skill_file.write_text(skill_content)
+
+            # Handle image update
+            skill = self.skills[skill_id]
+            old_image_path = skill.image_path
+
+            saved_image_path = old_image_path
+            if image_path and image_path != old_image_path:
+                # Delete old image if exists
+                if old_image_path:
+                    old_path = Path(old_image_path)
+                    if old_path.exists():
+                        old_path.unlink()
+
+                # Save new image
+                image_ext = Path(image_path).suffix
+                dest_image = self.skills_dir / f"skill_{skill_id}_icon{image_ext}"
+                shutil.copy2(image_path, dest_image)
+                saved_image_path = str(dest_image)
+
+            # Update skill info
+            skill.name = name
+            skill.description = description
+            skill.category = category
+            skill.icon = icon
+            skill.image_path = saved_image_path
+
+            self.save_config()
+            return True
+
+        except Exception as e:
+            print(f"[Skills] Error updating skill: {e}")
+            return False
 
     def delete_skill(self, skill_id: str) -> bool:
         """Delete a skill."""
