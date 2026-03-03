@@ -76,6 +76,8 @@ class ModelManager:
             print(f"[ModelManager] Using fallback directory: {self.models_dir}")
 
         self._state_file = self.models_dir / "models_state.json"
+
+        self._state_file = self.models_dir / "models_state.json"
         self._installed_models: Dict[str, InstalledModel] = {}
         self._active_model_id: Optional[str] = None
         self._current_download: Optional[DownloadProgress] = None
@@ -164,36 +166,38 @@ class ModelManager:
             if not self.models_dir.exists():
                 return
             for filepath in self.models_dir.glob("*.gguf"):
-            # Try to match with catalog
-            found = False
-            for model in MODEL_CATALOG:
-                if filepath.name == model.filename or model.id in filepath.name.lower():
-                    if model.id not in self._installed_models:
+                # Try to match with catalog
+                found = False
+                for model in MODEL_CATALOG:
+                    if filepath.name == model.filename or model.id in filepath.name.lower():
+                        if model.id not in self._installed_models:
+                            installed = InstalledModel(
+                                model_id=model.id,
+                                filepath=str(filepath),
+                                file_size_bytes=filepath.stat().st_size,
+                                installed_date="unknown",
+                                is_active=False
+                            )
+                            self._installed_models[model.id] = installed
+                        found = True
+                        break
+
+                # If not in catalog, create entry with filename as ID
+                if not found:
+                    model_id = filepath.stem
+                    if model_id not in self._installed_models:
                         installed = InstalledModel(
-                            model_id=model.id,
+                            model_id=model_id,
                             filepath=str(filepath),
                             file_size_bytes=filepath.stat().st_size,
                             installed_date="unknown",
                             is_active=False
                         )
-                        self._installed_models[model.id] = installed
-                    found = True
-                    break
+                        self._installed_models[model_id] = installed
 
-            # If not in catalog, create entry with filename as ID
-            if not found:
-                model_id = filepath.stem
-                if model_id not in self._installed_models:
-                    installed = InstalledModel(
-                        model_id=model_id,
-                        filepath=str(filepath),
-                        file_size_bytes=filepath.stat().st_size,
-                        installed_date="unknown",
-                        is_active=False
-                    )
-                    self._installed_models[model_id] = installed
-
-        self._save_state()
+                self._save_state()
+        except Exception as e:
+            print(f"[ModelManager] Error scanning models: {e}")
 
     def download_model(
         self,
