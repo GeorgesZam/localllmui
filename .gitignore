@@ -3,6 +3,7 @@ __pycache__/
 build/
 dist/
 *.spec
+!LocalRAG.spec  # Exception: we need this file for PyInstaller builds
 .DS_Store
 
 # Virtual Environment
@@ -21,8 +22,8 @@ env/
 .coverage
 htmlcov/
 .tox/
-test_*.py
-*_test.py
+# test_*.py  # Commented out - we need test_llama_cpp_windows.py
+# *_test.py  # Commented out - we need test files
 
 # Distribution / packaging
 *.egg-info/
