@@ -64,7 +64,35 @@ class EmbeddingModel:
 
             if os.path.exists(bundled_path):
                 log(f"Loading: {bundled_path}")
-                self._model = SentenceTransformer(bundled_path)
+
+                # Add timeout for model loading to prevent hanging on Windows
+                import signal
+                import threading
+
+                load_result = {'success': False, 'error': None}
+
+                def load_with_timeout():
+                    try:
+                        self._model = SentenceTransformer(bundled_path)
+                        load_result['success'] = True
+                    except Exception as e:
+                        load_result['error'] = str(e)
+
+                # Start loading in a thread
+                load_thread = threading.Thread(target=load_with_timeout, daemon=True)
+                load_thread.start()
+
+                # Wait with timeout (30 seconds should be enough)
+                load_thread.join(timeout=30)
+
+                if load_thread.is_alive():
+                    log("Loading timeout - model may be too large or corrupted")
+                    return False
+
+                if not load_result['success']:
+                    log(f"Error loading model: {load_result['error']}")
+                    return False
+
                 self._loaded = True
                 log("Embedding model loaded!")
                 return True
@@ -73,6 +101,8 @@ class EmbeddingModel:
                 return False
         except Exception as e:
             log(f"Error: {e}")
+            import traceback
+            traceback.print_exc()
             return False
 
     def encode(self, texts: List[str], is_query: bool = False) -> np.ndarray:

@@ -9,6 +9,7 @@ import config
 from patterns.observer import Observer
 from rag import RAG
 from response_handler import ConversationAwareResponseHandler
+from windows_helper import force_window_focus
 
 ctk.set_appearance_mode("dark")
 ctk.set_default_color_theme("blue")
@@ -1703,6 +1704,9 @@ class ModelCatalogWindow(ctk.CTkToplevel):
         self._build_ui()
         self._load_models()
 
+        # Force window focus on Windows (PyInstaller builds)
+        force_window_focus(self)
+
     def _close(self):
         ModelCatalogWindow._instance = None
         self.destroy()
@@ -2165,6 +2169,9 @@ class RAGConfigWindow(ctk.CTkToplevel):
                 wraplength=600
             )
             error_label.pack(padx=20, pady=20)
+
+        # Force window focus on Windows (PyInstaller builds)
+        force_window_focus(self)
 
     def _close(self):
         """Close the window."""

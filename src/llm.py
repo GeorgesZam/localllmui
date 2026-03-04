@@ -172,7 +172,10 @@ class LLMEngine(Observable, metaclass=SingletonMeta):
                     log(f"Warning during cleanup: {cleanup_error}")
                 finally:
                     # Always delete and set to None
-                    del self.llm
+                    try:
+                        del self.llm
+                    except:
+                        pass  # Ignore errors during cleanup
                     self.llm = None
                     self.is_ready = False
 

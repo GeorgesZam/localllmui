@@ -65,77 +65,83 @@ jobs:
           pip install pyinstaller
 
       - name: Create models directory
-        run: mkdir -p models
+        run: New-Item -ItemType Directory -Force -Path models
+        shell: pwsh
 
       - name: Download Qwen2.5 0.5B model
         run: |
+          $ProgressPreference = 'SilentlyContinue'
           Invoke-WebRequest -Uri "https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/main/qwen2.5-0.5b-instruct-q4_k_m.gguf" -OutFile "models/qwen2.5-0.5b-instruct-q4_k_m.gguf"
-        shell: pwsh
-
-      - name: Create model symlink (Windows)
-        run: |
-          if (Test-Path "models\model.gguf") { Write-Host "Model symlink exists" } else { Copy-Item "models\qwen2.5-0.5b-instruct-q4_k_m.gguf" "models\model.gguf" }
         shell: pwsh
 
       - name: Setup embedding model
         run: |
-          python -c "from sentence_transformers import SentenceTransformer; model = SentenceTransformer('BAAI/bge-small-en-v1.5'); model.save('models\embedding_model')"
+          python -c "from sentence_transformers import SentenceTransformer; model = SentenceTransformer('BAAI/bge-small-en-v1.5'); model.save('models/embedding_model')"
 
-      - name: Build with PyInstaller
+      - name: Verify model files
         run: |
-          pyinstaller --name LocalRAG `
-            --onefile `
-            --windowed `
-            --add-data "models;models" `
-            --hidden-import tiktoken_ext.openai_public `
-            --hidden-import tiktoken_ext `
-            --hidden-import customtkinter `
-            --hidden-import patterns `
-            --hidden-import config `
-            --hidden-import llm `
-            --hidden-import rag `
-            --hidden-import ui `
-            --hidden-import conversations `
-            --hidden-import ocr `
-            --hidden-import utils `
-            --hidden-import observers `
-            --hidden-import controllers `
-            --hidden-import search_strategies `
-            --hidden-import code_executor `
-            --collect-data sentence_transformers `
-            --collect-submodules sentence_transformers `
-            src/main.py
+          Write-Host "Checking model files..."
+          if (Test-Path "models/qwen2.5-0.5b-instruct-q4_k_m.gguf") { Write-Host "✓ Model file exists" } else { Write-Host "✗ Model file missing"; exit 1 }
+          if (Test-Path "models/embedding_model") { Write-Host "✓ Embedding model exists" } else { Write-Host "✗ Embedding model missing"; exit 1 }
+        shell: pwsh
 
-      - name: Verify build
+      - name: Test llama_cpp installation
+        run: python test_llama_cpp_windows.py
+
+      - name: Build with PyInstaller using spec file
         run: |
-          dir dist
-          if (Test-Path "dist\LocalRAG.exe") { Write-Host "✓ Build successful!" } else { exit 1 }
+          pyinstaller --clean --noconfirm LocalRAG.spec
+
+      - name: Verify build output
+        run: |
+          Write-Host "Checking build output..."
+          if (Test-Path "dist/LocalRAG/LocalRAG.exe") {
+            $size = (Get-Item "dist/LocalRAG/LocalRAG.exe").Length / 1MB
+            Write-Host "✓ Build successful! Size: $([math]::Round($size, 2)) MB"
+          } else {
+            Write-Host "✗ Build failed - exe not found"
+            Get-ChildItem -Path dist -Recurse | Write-Host
+            exit 1
+          }
+        shell: pwsh
+
+      - name: Check for required files in build
+        run: |
+          Write-Host "Checking required files in build..."
+          $required = @('dist/LocalRAG/LocalRAG.exe', 'dist/LocalRAG/models')
+          foreach ($file in $required) {
+            if (Test-Path $file) { Write-Host "✓ $file exists" } else { Write-Host "✗ $file missing" }
+          }
+        shell: pwsh
+
+      - name: Create distribution zip
+        run: |
+          Compress-Archive -Path dist/LocalRAG -DestinationPath LocalRAG-Windows.zip
         shell: pwsh
 
       - name: Upload Windows artifact
         uses: actions/upload-artifact@v4
         with:
           name: LocalRAG-Windows
-          path: dist/LocalRAG.exe
+          path: LocalRAG-Windows.zip
           retention-days: 30
 
-  
   create-release:
     if: startsWith(github.ref, 'refs/tags/')
     needs: [build-windows]
     runs-on: ubuntu-latest
-    
+
     steps:
       - name: Download all artifacts
         uses: actions/download-artifact@v4
         with:
           path: artifacts
-  
+
       - name: Create Release
         uses: softprops/action-gh-release@v1
         with:
           files: |
-            artifacts/LocalRAG-Windows/LocalRAG.exe
+            artifacts/LocalRAG-Windows/LocalRAG-Windows.zip
           generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

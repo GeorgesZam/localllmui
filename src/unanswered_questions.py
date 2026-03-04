@@ -145,7 +145,8 @@ class UnansweredQuestionHandler:
 
         # Ajouter des suggestions si un système RAG est disponible
         if self.rag_system:
-            
+            pass  # TODO: Implement RAG-based suggestions
+
         return base_responses[category]
 
     def get_common_unanswered_patterns(self) -> List[Dict]:
