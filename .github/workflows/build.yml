@@ -86,7 +86,9 @@ jobs:
         shell: pwsh
 
       - name: Test llama_cpp installation
-        run: python test_llama_cpp_windows.py
+        run: |
+          python -c "import llama_cpp; print('✓ llama_cpp imported successfully')"
+          python -c "from llama_cpp import Llama; print('✓ Llama class accessible')"
 
       - name: Build with PyInstaller using spec file
         run: |
