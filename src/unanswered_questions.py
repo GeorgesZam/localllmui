@@ -145,8 +145,7 @@ class UnansweredQuestionHandler:
 
         # Ajouter des suggestions si un système RAG est disponible
         if self.rag_system:
-            base_responses[category] += f"\n\n💡 Astuce: Essayez de charger des documents pertinents en utilisant le bouton 📁 Load Files, puis posez à nouveau votre question."
-
+            
         return base_responses[category]
 
     def get_common_unanswered_patterns(self) -> List[Dict]:

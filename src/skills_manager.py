@@ -146,9 +146,12 @@ class SkillsManager:
 
     def get_skill_content(self, skill_id: str) -> Optional[str]:
         """Get the full content of a skill file."""
-        skill_file = self.skills_dir / f"skill_{skill_id}.md"
-        if skill_file.exists():
-            return skill_file.read_text()
+        try:
+            skill_file = self.skills_dir / f"skill_{skill_id}.md"
+            if skill_file.exists():
+                return skill_file.read_text(encoding='utf-8')
+        except Exception as e:
+            print(f"[Skills] Error reading skill content for {skill_id}: {e}")
         return None
 
     def get_skill_instructions(self, skill_id: str) -> Optional[str]:
@@ -165,8 +168,17 @@ class SkillsManager:
             if line.startswith("## Instructions:"):
                 in_instructions = True
                 continue
+            if line.startswith("## "):
+                if in_instructions:
+                    break  # End of instructions section
             if in_instructions:
                 instructions.append(line)
+
+        # Filter out empty lines at the beginning and end
+        while instructions and not instructions[0].strip():
+            instructions.pop(0)
+        while instructions and not instructions[-1].strip():
+            instructions.pop()
 
         return "\n".join(instructions).strip() if instructions else None
 

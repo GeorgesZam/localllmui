@@ -257,9 +257,11 @@ class FileDownloadManager(ctk.CTkToplevel):
 class ChatUI(Observer):
     def __init__(self, root: ctk.CTk, on_send, on_clear, on_load_files,
                  on_new_chat, on_select_chat, on_delete_chat, skills_manager=None,
-                 on_skill_toggle=None, on_open_model_catalog=None, model_manager=None):
+                 on_skill_toggle=None, on_open_model_catalog=None, model_manager=None,
+                 on_stop=None):
         self.root = root
         self.on_send = on_send
+        self.on_stop = on_stop
         self.on_clear = on_clear
         self.on_load_files = on_load_files
         self.on_new_chat = on_new_chat
@@ -281,6 +283,8 @@ class ChatUI(Observer):
         from skills_manager import SkillsManager
         self.skills_manager = skills_manager if skills_manager else SkillsManager()
         self._skills_window = None
+        self.is_generating = False
+        self.conversation_id = None
 
         self._setup_window()
         self._create_widgets()
@@ -292,11 +296,10 @@ class ChatUI(Observer):
         Args:
             event: Event object containing name and data
         """
-        if event.name == 'code_detected':
-            self.handle_code_detected(event.data)
-        elif event.name == 'generation_complete':
-            # Could handle generation completion here if needed
-            pass
+        # Code detection feature removed - no longer needed
+        # Note: generation_complete event is now handled by main.py queue processing
+        # to avoid conflicts and ensure proper state management
+        pass
 
     def _setup_window(self):
         self.root.title(f"🤖 {config.APP_NAME}")
@@ -324,9 +327,21 @@ class ChatUI(Observer):
         ctk.CTkLabel(header, text=f"🤖 {config.APP_NAME}",
                      font=ctk.CTkFont(family="Arial", size=24, weight="bold")).pack(side="left")
 
-        self.status = ctk.CTkLabel(header, text="⏳ Loading...",
-                                   font=ctk.CTkFont(size=12), text_color=("#888888", "#888888"))
-        self.status.pack(side="right", padx=10)
+        # Model indicator - shows current active model
+        model_info_frame = ctk.CTkFrame(header, fg_color="transparent")
+        model_info_frame.pack(side="right", padx=10)
+
+        self.model_label = ctk.CTkLabel(
+            model_info_frame,
+            text="🔷 Loading...",
+            font=ctk.CTkFont(size=11, weight="bold"),
+            text_color=("#4a9eff", "#3b7ac7")
+        )
+        self.model_label.pack(side="right", padx=(0, 15))
+
+        self.status = ctk.CTkLabel(header, text="⏳ Ready",
+                                   font=ctk.CTkFont(size=11), text_color=("#888888", "#888888"))
+        self.status.pack(side="right")
 
         toolbar = ctk.CTkFrame(main_frame, fg_color="transparent")
         toolbar.grid(row=1, column=0, sticky="ew", padx=10, pady=5)
@@ -383,6 +398,9 @@ class ChatUI(Observer):
         )
         self.chat.grid(row=0, column=0, sticky="nsew", padx=2, pady=2)
 
+        # Configure markdown-like tags for code blocks
+        self._configure_markdown_tags()
+
         input_frame = ctk.CTkFrame(main_frame, fg_color="transparent")
         input_frame.grid(row=3, column=0, sticky="ew", padx=10, pady=(5, 10))
         input_frame.grid_columnconfigure(0, weight=1)
@@ -397,18 +415,63 @@ class ChatUI(Observer):
         self.input.bind("<Return>", self._on_enter)
         self.input.bind("<Shift-Return>", lambda e: None)
 
-        ctk.CTkButton(
+        self.send_btn = ctk.CTkButton(
             input_frame, text="Send ➤", command=self._send,
             width=90, height=60, corner_radius=10,
             font=ctk.CTkFont(size=13, weight="bold"),
             fg_color=("#50fa7b", "#40c969"), hover_color=("#40c969", "#30b959"),
             text_color=("#000000", "#000000")
-        ).grid(row=0, column=1)
+        )
+        self.send_btn.grid(row=0, column=1)
 
     def _on_enter(self, event):
         if not (event.state & 0x1):
             self._send()
             return "break"
+
+    def _configure_markdown_tags(self):
+        """Configure markdown-like tags for code block formatting."""
+        # Note: customtkinter's CTkTextbox doesn't fully support tkinter tags
+        # We'll use text-based formatting instead
+        pass
+
+    def set_generating_state(self, is_generating: bool):
+        """
+        Toggle between send and stop button states.
+
+        Args:
+            is_generating: True to show stop button, False to show send button
+        """
+        print(f"[UI] set_generating_state({is_generating}) - current state: {self.is_generating}")
+        self.is_generating = is_generating
+        try:
+            if is_generating:
+                self.send_btn.configure(
+                    text="⏹ Stop",
+                    fg_color=("#ff5555", "#cc4444"),
+                    hover_color=("#cc4444", "#aa3333"),
+                    command=self._stop_generation,
+                    state="normal"
+                )
+                print(f"[UI] Button changed to: Stop")
+            else:
+                self.send_btn.configure(
+                    text="Send ➤",
+                    fg_color=("#50fa7b", "#40c969"),
+                    hover_color=("#40c969", "#30b959"),
+                    command=self._send,
+                    state="normal"
+                )
+                print(f"[UI] Button changed to: Send")
+        except Exception as e:
+            print(f"[UI] Error in set_generating_state: {e}")
+            # Ensure state is consistent even if configure fails
+            self.is_generating = not is_generating
+
+    def _stop_generation(self):
+        """Handle stop button click."""
+        if self.on_stop:
+            self.on_stop()
 
     def _send(self):
         text = self.input.get("0.0", "end").strip()
@@ -460,6 +523,37 @@ class ChatUI(Observer):
         color = ("#ff5555", "#ff5555") if is_error else ("#50fa7b", "#50fa7b")
         self.status.configure(text=text, text_color=color)
 
+    def set_model(self, model_id: str, model_name: str = None):
+        """Update the displayed model name with size and quantization info."""
+        from model_catalog import get_model_by_id
+
+        # Try to get model info from catalog
+        info = get_model_by_id(model_id)
+
+        if info:
+            # Build detailed display: "Qwen 2.5 - 0.5B - Q4_K_M"
+            parts = []
+            parts.append(info.name)  # e.g., "Qwen 2.5"
+            parts.append(f"{info.parameter_count}B")  # e.g., "0.5B"
+            parts.append(info.quantization)  # e.g., "Q4_K_M"
+            display_name = " - ".join(parts)
+        else:
+            # Fallback: extract info from model_id
+            # e.g., "qwen2.5-0.5b-instruct-q4_k_m" -> "Qwen 2.5 - 0.5B - Q4_K_M"
+            display_name = model_id.replace("-", " ").replace("_", " ").title()
+            # Try to extract size
+            import re
+            size_match = re.search(r'(\d+\.?\d*)[bB]', model_id)
+            if size_match:
+                size = size_match.group(1)
+                display_name = re.sub(r'(\d+\.?\d*)[bB]', f'{size}B', display_name, count=1)
+
+        # Shorten if too long
+        if len(display_name) > 35:
+            display_name = display_name[:32] + "..."
+
+        self.model_label.configure(text=f"🔷 {display_name}")
+
     def update_doc_count(self, count: int):
         if count == 0:
             text, color = "📚 No documents", ("#888888", "#888888")
@@ -470,12 +564,48 @@ class ChatUI(Observer):
     def add_message(self, sender: str, text: str, tag: str = ""):
         if self.chat.get("0.0", "end").strip():
             self.chat.insert("end", "\n")
-        self.chat.insert("end", f"{sender}:\n{text}\n")
+
+        # Insert sender
+        self.chat.insert("end", f"{sender}:\n")
+
+        # Insert content with markdown formatting for code blocks
+        formatted_text = self._format_markdown(text)
+        self.chat.insert("end", formatted_text)
+
+        self.chat.insert("end", "\n")
         self.chat.see("end")
 
     def stream(self, text: str):
+        # For streaming, we just append text (markdown will be applied after completion)
         self.chat.insert("end", text)
         self.chat.see("end")
+
+    def apply_markdown_to_last_message(self):
+        """Apply markdown formatting to the last assistant message in chat."""
+        try:
+            # Get all content
+            content = self.chat.get("1.0", "end")
+
+            # Find the last "Assistant:" message
+            last_assistant_pos = content.rfind("Assistant:")
+            if last_assistant_pos == -1:
+                return
+
+            # Get the text after the last "Assistant:" marker
+            text_after_assistant = content[last_assistant_pos + len("Assistant:\n"):]
+
+            # Format with markdown
+            formatted = self._format_markdown(text_after_assistant)
+
+            # If formatting changed the text, replace it
+            if formatted != text_after_assistant:
+                # Calculate line number for deletion (1-indexed)
+                lines_before = content[:last_assistant_pos].count('\n') + 1
+                self.chat.delete(f"{lines_before}.0", "end")
+                self.chat.insert("end", formatted)
+                self.chat.see("end")
+        except Exception as e:
+            print(f"[UI] Error applying markdown: {e}")
 
     def clear_chat(self):
         self.chat.delete("0.0", "end")
@@ -483,6 +613,16 @@ class ChatUI(Observer):
     def set_enabled(self, enabled: bool):
         state = "normal" if enabled else "disabled"
         self.input.configure(state=state)
+        # Also enable/disable the send button appropriately
+        if not enabled:
+            self.send_btn.configure(state="disabled")
+        else:
+            # Only set generating state if we're not switching models
+            # This prevents confusion between generation and model switching
+            if hasattr(self, 'is_generating') and not (hasattr(self.root, '_is_switching_model') and self.root._is_switching_model):
+                self.set_generating_state(self.is_generating)
+            else:
+                self.set_generating_state(False)
 
     def focus_input(self):
         self.input.focus_set()
@@ -496,14 +636,24 @@ class ChatUI(Observer):
             role = "You" if msg["role"] == "user" else "Assistant"
             self.add_message(role, msg["content"], msg["role"])
 
-    def _format_code_blocks(self, text: str) -> str:
-        """Format Python code blocks with visual styling."""
-        def format_block(match):
-            code = match.group(1)
-            return f"📝 CODE:\n{'─'*40}\n{code}\n{'─'*40}"
+    def _format_markdown(self, text: str) -> str:
+        """Format markdown text with visual styling for code blocks."""
+        import re
 
-        pattern = r'```python\n(.*?)\n```'
-        return re.sub(pattern, format_block, text, flags=re.DOTALL)
+        # Pattern for code blocks: ```language\ncode\n```
+        code_pattern = re.compile(r'```(\w*)\n(.*?)\n```', re.DOTALL)
+
+        def replace_code_block(match):
+            lang = match.group(1)
+            code = match.group(2)
+            # Create a nice visual box for the code
+            lines = code.split('\n')
+            return f"\n┌─ {'Code' if not lang else lang} {'─' * (50 - len(lang))}\n│\n" + \
+                   "\n".join("│ " + line for line in lines) + \
+                   "\n│\n└" + ("─" * 55) + "┘\n"
+
+        result = code_pattern.sub(replace_code_block, text)
+        return result
 
     def prompt_file_save(self, filename: str, default_name: str) -> str:
         """Prompt user to choose save location for generated file."""
@@ -553,121 +703,6 @@ class ChatUI(Observer):
 
             # Show download button
             self._show_download_button()
-
-    def handle_code_detected(self, code_data: dict):
-        """
-        Handle detection of executable code in the response.
-
-        Args:
-            code_data: Dictionary containing 'language', 'code', 'full_response'
-        """
-        language = code_data.get('language', 'python')
-        code = code_data.get('code', '')
-
-        if not code:
-            return
-
-        # Add a system message with execution option
-        self.add_message("System",
-            f"\n🔍 Detected {language} code in the response!"
-        )
-        self.add_message("System",
-            "Click '▶️ Run Code' below to execute it."
-        )
-
-        # Insert a clickable button in the chat
-        self._insert_run_code_button(code, language)
-
-    def _insert_run_code_button(self, code: str, language: str):
-        """Insert a clickable button to run the detected code."""
-        try:
-            # Create a frame for the button
-            button_frame = ctk.CTkFrame(
-                self.chat,
-                fg_color=("#2a2a3a", "#1a1a2a"),
-                corner_radius=8
-            )
-
-            # Create run button
-            run_button = ctk.CTkButton(
-                button_frame,
-                text="▶️ Run Code",
-                width=120,
-                height=35,
-                command=lambda: self._execute_detected_code(code, language),
-                fg_color=("#50fa7b", "#40c969"),
-                hover_color=("#40c969", "#30b959"),
-                font=ctk.CTkFont(size=12, weight="bold")
-            )
-            run_button.pack(side="left", padx=10, pady=8)
-
-            # Create copy button
-            copy_button = ctk.CTkButton(
-                button_frame,
-                text="📋 Copy",
-                width=100,
-                height=35,
-                command=lambda: self._copy_code_to_clipboard(code),
-                fg_color=("#4a9eff", "#3b7ac7"),
-                hover_color=("#3b7ac7", "#2d5f9e"),
-                font=ctk.CTkFont(size=11)
-            )
-            copy_button.pack(side="left", padx=(0, 10), pady=8)
-
-            # Insert the frame at the end of chat
-            self.chat.window_create("end", window=button_frame)
-            self.chat.insert("end", "\n\n")
-            self.chat.see("end")
-
-        except Exception as e:
-            print(f"[UI] Error inserting run code button: {e}")
-
-    def _execute_detected_code(self, code: str, language: str):
-        """Execute the detected code."""
-        try:
-            from code_executor import EnhancedSandboxedCodeExecutor, ResourceLimits
-            from tkinter import messagebox
-
-            # Check if it's Python code (we only support Python execution for now)
-            if language not in ['python', 'py', '']:
-                messagebox.showinfo("Not Supported",
-                    f"Code execution for {language} is not supported yet. Only Python is supported.")
-                return
-
-            # Create executor with resource limits
-            resource_limits = ResourceLimits(
-                max_cpu_time=self.root.master.master._config.CODE_EXECUTION_TIMEOUT,
-                max_memory_mb=self.root.master.master._config.CODE_EXECUTION_MAX_MEMORY_MB,
-                allow_network=False
-            )
-
-            executor = EnhancedSandboxedCodeExecutor(resource_limits)
-            self._code_executor = executor
-
-            # Execute the code
-            self.add_message("System", f"⚡ Executing {language} code...\n")
-
-            result = executor.execute(code)
-
-            # Format and display result
-            output = format_code_output(result)
-            self.add_message("System", output)
-
-            # If files were created, offer downloads
-            if result.files_created:
-                self.handle_code_execution_complete(result, executor)
-
-        except Exception as e:
-            self.add_message("System", f"❌ Error executing code: {e}")
-
-    def _copy_code_to_clipboard(self, code: str):
-        """Copy code to clipboard."""
-        try:
-            self.root.clipboard_clear()
-            self.root.clipboard_append(code)
-            self.add_message("System", "✅ Code copied to clipboard!")
-        except Exception as e:
-            print(f"[UI] Error copying to clipboard: {e}")
 
     def _show_download_button(self):
         """Show download files button in chat."""
@@ -738,13 +773,23 @@ class ChatUI(Observer):
     def _open_rag_config(self):
         """Open RAG configuration window."""
         if hasattr(self, '_rag_config_window') and self._rag_config_window:
-            self._rag_config_window.lift()
-            self._rag_config_window.focus_force()
-            return
+            try:
+                # Check if window still exists
+                if self._rag_config_window.winfo_exists():
+                    self._rag_config_window.lift()
+                    self._rag_config_window.focus_force()
+                    return
+            except:
+                pass  # Window was destroyed, continue to create new one
+
+        # Create new window - access llm through root
+        rag_instance = None
+        if hasattr(self.root, 'llm') and self.root.llm.rag:
+            rag_instance = self.root.llm.rag
 
         self._rag_config_window = RAGConfigWindow(
             self.root,
-            self.llm.rag if self.llm.rag else None,
+            rag_instance,
             self
         )
 
@@ -769,7 +814,7 @@ class ChatUI(Observer):
         # Traiter la réponse avec le handler
         result = self.response_handler.process_response(question, response, {
             "conversation_id": self.conversation_id,
-            "has_rag": hasattr(self.llm, 'rag') and self.llm.rag is not None
+            "has_rag": False  # RAG status check removed - ChatUI doesn't have llm reference
         })
 
         # Si la réponse est insuffisante, afficher des suggestions
@@ -781,10 +826,7 @@ class ChatUI(Observer):
                 for key, suggestion in result['suggestions'].items():
                     suggestions_text += f"• {suggestion}\n"
 
-            # Ajouter tip RAG si applicable
-            if self.response_handler.should_show_rag_tip(question):
-                suggestions_text += f"\nEssayez de charger des documents pertinents avec le bouton Load Files, puis posez a nouveau votre question."
-
+            
             # Ajouter des questions de suivi
             if result['follow_ups']:
                 suggestions_text += f"\n\nQuestions de suivi:\n"
@@ -796,6 +838,7 @@ class ChatUI(Observer):
 
     def set_conversation_for_response_handler(self, conversation_id: str):
         """Définir l'ID de conversation pour le handler."""
+        self.conversation_id = conversation_id
         self.response_handler.set_conversation(conversation_id)
 
 
@@ -992,6 +1035,9 @@ class ViewSkillDialog(ctk.CTkToplevel):
         self.skill_instructions = self.skills_manager.get_skill_instructions(skill.id) or ""
         self.raw_content = self.skills_manager.get_skill_content(skill.id) or ""
 
+        # Debug: Log the loaded instructions
+        print(f"[Debug] Loading instructions for {skill.id}: {repr(self.skill_instructions)}")
+
         self.title(f"✏️ Edit: {skill.name}")
         self.geometry("750x750")
         self.configure(fg_color="#1a1a2e")
@@ -1175,7 +1221,6 @@ class ViewSkillDialog(ctk.CTkToplevel):
             font=ctk.CTkFont(size=11),
             fg_color="#1e1e2e",
             button_color="#4a9eff",
-            hover_color="#3b7ac7",
             border_color="#3a3a4a",
             dropdown_fg_color="#252535",
             text_color="#ffffff",
@@ -1301,6 +1346,20 @@ class ViewSkillDialog(ctk.CTkToplevel):
             anchor="w"
         )
         help_text.pack(fill="x", padx=15, pady=(0, 5))
+
+        # Debug: show loaded status
+        if not self.skill_instructions:
+            debug_label = ctk.CTkLabel(
+                parent,
+                text="⚠️ No instructions found - please add skill instructions",
+                font=ctk.CTkFont(size=10),
+                text_color="#ff6b6b",
+                fg_color="#2a2a3a",
+                corner_radius=5,
+                padx=10,
+                pady=3
+            )
+            debug_label.pack(fill="x", padx=15, pady=(0, 5))
 
         self.content_text = ctk.CTkTextbox(
             parent,
@@ -2092,8 +2151,20 @@ class RAGConfigWindow(ctk.CTkToplevel):
         self.chat_ui = chat_ui
         self.protocol("WM_DELETE_WINDOW", self._close)
 
-        self._build_ui()
-        self._update_stats()
+        try:
+            self._build_ui()
+            self._update_stats()
+        except Exception as e:
+            print(f"[RAGConfigWindow] Error during initialization: {e}")
+            # Show a simple error message if UI creation fails
+            error_label = ctk.CTkLabel(
+                self,
+                text=f"Error loading RAG configuration:\n{str(e)}",
+                font=ctk.CTkFont(size=12),
+                text_color=("red", "red"),
+                wraplength=600
+            )
+            error_label.pack(padx=20, pady=20)
 
     def _close(self):
         """Close the window."""
@@ -2106,7 +2177,7 @@ class RAGConfigWindow(ctk.CTkToplevel):
 
         # Header
         header = ctk.CTkFrame(self, fg_color=("transparent"))
-        header.grid(row=0, column=0, sticky="ew", padx=10, pady=(10, 5))
+        header.pack(fill="x", padx=10, pady=(10, 5))
 
         title = ctk.CTkLabel(
             header,
@@ -2114,23 +2185,25 @@ class RAGConfigWindow(ctk.CTkToplevel):
             font=ctk.CTkFont(size=20, weight="bold"),
             text_color=("white", "white")
         )
-        title.pack()
+        title.pack(padx=10, pady=5)
 
         # Main content with tabs
         notebook = ctk.CTkTabview(self)
-        notebook.grid(row=1, column=0, sticky="nsew", padx=10, pady=(0, 10))
-        notebook.add("Settings", "settings")
-        notebook.add("Documents", "documents")
-        notebook.add("Statistics", "statistics")
+        notebook.pack(fill="both", expand=True, padx=10, pady=(0, 10))
+
+        # Get tab references
+        settings_tab = notebook.add("Settings")
+        documents_tab = notebook.add("Documents")
+        statistics_tab = notebook.add("Statistics")
 
         # Settings Tab
-        self._build_settings_tab(notebook.tab("settings"))
+        self._build_settings_tab(settings_tab)
 
         # Documents Tab
-        self._build_documents_tab(notebook.tab("documents"))
+        self._build_documents_tab(documents_tab)
 
         # Statistics Tab
-        self._build_statistics_tab(notebook.tab("statistics"))
+        self._build_statistics_tab(statistics_tab)
 
     def _build_settings_tab(self, parent):
         parent.columnconfigure(0, weight=1)
@@ -2139,7 +2212,12 @@ class RAGConfigWindow(ctk.CTkToplevel):
         enable_frame = ctk.CTkFrame(parent, fg_color=("transparent"))
         enable_frame.pack(fill="x", padx=10, pady=10)
 
-        self.rag_enabled = ctk.BooleanVar(value=self.rag is not None)
+        # Check if RAG is available
+        rag_available = self.rag is not None
+        if rag_available:
+            self.rag_enabled = ctk.BooleanVar(value=True)
+        else:
+            self.rag_enabled = ctk.BooleanVar(value=False)
 
         enable_check = ctk.CTkCheckBox(
             enable_frame,
@@ -2149,6 +2227,16 @@ class RAGConfigWindow(ctk.CTkToplevel):
             font=ctk.CTkFont(size=12, weight="bold")
         )
         enable_check.pack(anchor="w")
+
+        if not rag_available:
+            # Show message that RAG is not available
+            info_label = ctk.CTkLabel(
+                enable_frame,
+                text="RAG is not initialized. Please wait for the model to load first.",
+                font=ctk.CTkFont(size=10),
+                text_color=("#ff6b6b", "#ff5252")
+            )
+            info_label.pack(anchor="w", padx=(20, 0), pady=(5, 0))
 
         # Search Parameters
         params_frame = ctk.CTkFrame(parent, fg_color=("transparent"))
@@ -2173,15 +2261,27 @@ class RAGConfigWindow(ctk.CTkToplevel):
         ).pack(side="left", padx=(0, 10))
 
         self.top_k_var = ctk.IntVar(value=5 if self.rag else 5)
-        top_k_spin = ctk.CTkSpinner(
+        top_k_label = ctk.CTkLabel(
+            top_k_frame,
+            text=str(self.top_k_var.get()),
+            width=30
+        )
+        top_k_label.pack(side="left", padx=(5, 0))
+
+        def update_top_k_label(value):
+            self.top_k_var.set(int(float(value)))
+            top_k_label.configure(text=str(int(float(value))))
+            self._update_settings()
+
+        top_k_slider = ctk.CTkSlider(
             top_k_frame,
             from_=1,
             to=20,
-            width=60,
             variable=self.top_k_var,
-            command=self._update_settings
+            command=update_top_k_label,
+            width=150
         )
-        top_k_spin.pack(side="left")
+        top_k_slider.pack(side="left", padx=(5, 0))
 
         # Score Threshold
         score_frame = ctk.CTkFrame(params_frame, fg_color=("transparent"))
@@ -2195,15 +2295,27 @@ class RAGConfigWindow(ctk.CTkToplevel):
         ).pack(side="left", padx=(0, 10))
 
         self.score_var = ctk.DoubleVar(value=0.3 if self.rag else 0.3)
-        score_spin = ctk.CTkSpinner(
+        score_label = ctk.CTkLabel(
+            score_frame,
+            text=f"{self.score_var.get():.2f}",
+            width=40
+        )
+        score_label.pack(side="left", padx=(5, 0))
+
+        def update_score_label(value):
+            self.score_var.set(float(value))
+            score_label.configure(text=f"{float(value):.2f}")
+            self._update_settings()
+
+        score_slider = ctk.CTkSlider(
             score_frame,
             from_=0.0,
             to=1.0,
-            width=60,
             variable=self.score_var,
-            command=self._update_settings
+            command=update_score_label,
+            width=150
         )
-        score_spin.pack(side="left")
+        score_slider.pack(side="left", padx=(5, 0))
 
         # Chunk Parameters
         chunk_frame = ctk.CTkFrame(parent, fg_color=("transparent"))
@@ -2228,15 +2340,27 @@ class RAGConfigWindow(ctk.CTkToplevel):
         ).pack(side="left", padx=(0, 10))
 
         self.chunk_size_var = ctk.IntVar(value=1000 if self.rag else 1000)
-        chunk_size_spin = ctk.CTkSpinner(
+        chunk_size_label = ctk.CTkLabel(
+            chunk_size_frame,
+            text=str(self.chunk_size_var.get()),
+            width=50
+        )
+        chunk_size_label.pack(side="left", padx=(5, 0))
+
+        def update_chunk_size_label(value):
+            self.chunk_size_var.set(int(float(value)))
+            chunk_size_label.configure(text=str(int(float(value))))
+            self._update_settings()
+
+        chunk_size_slider = ctk.CTkSlider(
             chunk_size_frame,
             from_=100,
             to=5000,
-            width=80,
             variable=self.chunk_size_var,
-            command=self._update_settings
+            command=update_chunk_size_label,
+            width=150
         )
-        chunk_size_spin.pack(side="left")
+        chunk_size_slider.pack(side="left", padx=(5, 0))
 
         ctk.CTkLabel(
             chunk_size_frame,
@@ -2257,15 +2381,27 @@ class RAGConfigWindow(ctk.CTkToplevel):
         ).pack(side="left", padx=(0, 10))
 
         self.chunk_overlap_var = ctk.IntVar(value=200 if self.rag else 200)
-        chunk_overlap_spin = ctk.CTkSpinner(
+        chunk_overlap_label = ctk.CTkLabel(
+            chunk_overlap_frame,
+            text=str(self.chunk_overlap_var.get()),
+            width=50
+        )
+        chunk_overlap_label.pack(side="left", padx=(5, 0))
+
+        def update_chunk_overlap_label(value):
+            self.chunk_overlap_var.set(int(float(value)))
+            chunk_overlap_label.configure(text=str(int(float(value))))
+            self._update_settings()
+
+        chunk_overlap_slider = ctk.CTkSlider(
             chunk_overlap_frame,
             from_=0,
             to=1000,
-            width=80,
             variable=self.chunk_overlap_var,
-            command=self._update_settings
+            command=update_chunk_overlap_label,
+            width=150
         )
-        chunk_overlap_spin.pack(side="left")
+        chunk_overlap_slider.pack(side="left", padx=(5, 0))
 
         ctk.CTkLabel(
             chunk_overlap_frame,
@@ -2286,29 +2422,39 @@ class RAGConfigWindow(ctk.CTkToplevel):
 
     def _build_documents_tab(self, parent):
         parent.columnconfigure(0, weight=1)
-        parent.rowconfigure(1, weight=1)
 
         # Header
         header = ctk.CTkFrame(parent, fg_color=("transparent"))
-        header.grid(row=0, column=0, sticky="ew", padx=10, pady=(10, 5))
+        header.pack(fill="x", padx=10, pady=(10, 5))
 
         ctk.CTkLabel(
             header,
             text="📚 Loaded Documents",
             font=ctk.CTkFont(size=14, weight="bold"),
             text_color=("white", "white")
-        ).pack()
+        ).pack(padx=10, pady=5)
 
         # Document list
         list_frame = ctk.CTkScrollableFrame(parent, fg_color=("transparent"))
-        list_frame.grid(row=1, column=0, sticky="nsew", padx=10, pady=5)
+        list_frame.pack(fill="both", expand=True, padx=10, pady=5)
 
         self.doc_listbox = ctk.CTkTextbox(list_frame, wrap="word", height=200)
         self.doc_listbox.pack(fill="both", expand=True)
 
+        # Show message if RAG is not available
+        if self.rag is None:
+            no_rag_label = ctk.CTkLabel(
+                list_frame,
+                text="RAG is not initialized.\nPlease wait for the model to load first.",
+                font=ctk.CTkFont(size=12),
+                text_color=("#ff6b6b", "#ff5252"),
+                wraplength=500
+            )
+            no_rag_label.pack(pady=50)
+
         # Buttons
         btn_frame = ctk.CTkFrame(parent, fg_color=("transparent"))
-        btn_frame.grid(row=2, column=0, sticky="ew", padx=10, pady=(0, 10))
+        btn_frame.pack(fill="x", padx=10, pady=(0, 10))
 
         refresh_btn = ctk.CTkButton(
             btn_frame,
@@ -2339,10 +2485,14 @@ class RAGConfigWindow(ctk.CTkToplevel):
             text="📊 RAG Statistics",
             font=ctk.CTkFont(size=14, weight="bold"),
             text_color=("white", "white")
-        ).pack(anchor="w", pady=(0, 20))
+        ).pack(anchor="w", padx=10, pady=(0, 20))
 
         self.stats_text = ctk.CTkTextbox(stats_frame, wrap="word", height=300)
-        self.stats_text.pack(fill="both", expand=True)
+        self.stats_text.pack(fill="both", expand=True, padx=10, pady=(0, 10))
+
+        # Show message if RAG is not available
+        if self.rag is None:
+            self.stats_text.insert("1.0", "RAG is not initialized.\nPlease wait for the model to load first.")
 
         refresh_btn = ctk.CTkButton(
             parent,
@@ -2412,7 +2562,11 @@ class RAGConfigWindow(ctk.CTkToplevel):
         """Update statistics display."""
         self.stats_text.delete("1.0", "end")
 
-        if self.rag and self.rag_enabled.get():
+        if self.rag is None:
+            self.stats_text.insert("1.0", "RAG is not initialized.\nPlease wait for the model to load first.")
+            return
+
+        if self.rag_enabled.get():
             # Get current conversation stats
             docs = self.rag.get_conversation_documents(self.chat_ui.conversation_id)
             chunks = self.rag.chunks.get(self.chat_ui.conversation_id, {})

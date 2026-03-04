@@ -7,6 +7,7 @@ with observable progress reporting during model loading and generation.
 
 import os
 import re
+import threading
 from typing import Iterator, Optional, Callable
 from dataclasses import dataclass
 
@@ -77,12 +78,23 @@ class LLMEngine(Observable, metaclass=SingletonMeta):
         # Statistics
         self._current_stats = GenerationStats()
 
+        # Stop flag for generation cancellation
+        self._stop_requested = threading.Event()
+
         self._initialized = True
 
     @classmethod
     def get_instance(cls) -> 'LLMEngine':
         """Get the singleton LLM engine instance."""
         return cls()
+
+    def stop_generation(self):
+        """Request to stop the current generation."""
+        self._stop_requested.set()
+
+    def reset_stop_flag(self):
+        """Reset stop flag for new generation."""
+        self._stop_requested.clear()
 
     def load(self, on_progress: Optional[Callable[[str], None]] = None, model_path: Optional[str] = None) -> bool:
         """
@@ -148,9 +160,26 @@ class LLMEngine(Observable, metaclass=SingletonMeta):
             # Unload previous model if exists
             if self.llm is not None:
                 log("Unloading previous model...")
-                del self.llm
-                self.llm = None
-                self.is_ready = False
+                try:
+                    # Properly cleanup llama_cpp model
+                    # The model needs to be explicitly closed to free mmap and GPU resources
+                    if hasattr(self.llm, 'close'):
+                        self.llm.close()
+                    # Also try __exit__ for context manager cleanup
+                    if hasattr(self.llm, '__exit__'):
+                        self.llm.__exit__(None, None, None)
+                except Exception as cleanup_error:
+                    log(f"Warning during cleanup: {cleanup_error}")
+                finally:
+                    # Always delete and set to None
+                    del self.llm
+                    self.llm = None
+                    self.is_ready = False
+
+                # Force garbage collection to free memory immediately
+                import gc
+                gc.collect()
+                log("Previous model unloaded")
 
             # Load model
             log("Loading model...")
@@ -173,6 +202,9 @@ class LLMEngine(Observable, metaclass=SingletonMeta):
             # Clear history when switching models
             self.history = []
 
+            # Reset stop flag - ensure clean state for new model
+            self._stop_requested.clear()
+
             self.is_ready = True
             log("Ready!")
 
@@ -186,12 +218,20 @@ class LLMEngine(Observable, metaclass=SingletonMeta):
 
         except Exception as e:
             self.error = str(e)
-            log(f"Error: {e}")
+            error_str = str(e)
+
+            # Provide more helpful error messages for common issues
+            if "corrupted" in error_str.lower() or "incomplete" in error_str.lower() or "not within the file bounds" in error_str.lower():
+                error_str = f"Model file is corrupted or incomplete. Please re-download the model.\nOriginal error: {error_str}"
+            elif "failed to load model from file" in error_str.lower():
+                error_str = f"Failed to load model. The file may be corrupted or incompatible.\nOriginal error: {error_str}"
+
+            log(f"Error: {error_str}")
 
             # Notify error state
             self.notify(StateEvent.create(
                 StateEvent.ERROR,
-                {'error': str(e)}
+                {'error': error_str}
             ))
 
             import traceback
@@ -304,6 +344,10 @@ Answer based on context. If not found, say so."""
                 repeat_penalty=self._config.REPEAT_PENALTY,
                 stream=True
             ):
+                # Check if stop was requested
+                if self._stop_requested.is_set():
+                    break
+
                 token = chunk["choices"][0]["text"]
                 full_response += token
                 self._current_stats.tokens_generated += 1

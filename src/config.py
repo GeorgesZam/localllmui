@@ -31,11 +31,11 @@ class ConfigManager(metaclass=SingletonMeta):
         self.app_name = "Local Chat"
         self.window_size = "1100x700"
 
-        # Model Configuration
+        # Model Configuration - Define models_dir first
+        self.models_dir = "models"  # Use local models directory
         self.model_file = f"{self.models_dir}/qwen2.5-0.5b-instruct-q4_k_m.gguf"  # Default to Qwen 2.5 smallest
         self.model_id = "qwen2.5-0.5b"  # Model ID for catalog lookup
         self.embedding_model_folder = f"{self.models_dir}/embedding_model"
-        self.models_dir = str(Path.home() / ".localllm_models")
 
         # CPU Configuration
         self._cpu_count = multiprocessing.cpu_count()

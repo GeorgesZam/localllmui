@@ -10,7 +10,7 @@ from tkinter import filedialog, messagebox
 
 from llm import LLMEngine
 from conversations import ConversationManager
-from ui import ChatUI, ModelCatalogWindow
+from ui import ChatUI, ModelCatalogWindow, RAGConfigWindow
 from skills_manager import SkillsManager, SkillExecutor
 from model_manager import ModelManager
 import config
@@ -39,6 +39,9 @@ class App(ctk.CTk):
         self.conv_manager = ConversationManager()
         self.message_queue = queue.Queue()
         self.is_processing = False
+        self.last_question = None
+        self._generation_thread = None
+        self._is_switching_model = False
 
         # Model management
         self.model_manager = ModelManager(config.models_dir)
@@ -60,6 +63,7 @@ class App(ctk.CTk):
         self.ui = ChatUI(
             self,
             on_send=self._on_send,
+            on_stop=self._on_stop,
             on_clear=self._on_clear,
             on_load_files=self._on_load_files,
             on_new_chat=self._on_new_chat,
@@ -97,10 +101,15 @@ class App(ctk.CTk):
 
                 elif msg_type == "initialized":
                     self.llm.update_skills_content(self.skills_manager)
-                    self.ui.set_status("Ready", is_error=False)
+                    # Don't set "Ready" status if we're in the middle of switching models
+                    if not self._is_switching_model:
+                        self.ui.set_status("Ready", is_error=False)
                     self.ui.set_enabled(True)
                     self.ui.focus_input()
                     self._update_sidebar()
+                    # Set initial model display
+                    model_id = self.llm.get_current_model_id()
+                    self.ui.set_model(model_id)
 
                 elif msg_type == "error":
                     self.ui.set_status(f"Error: {data}", is_error=True)
@@ -114,14 +123,37 @@ class App(ctk.CTk):
                     if conv:
                         self.conv_manager.add_message("assistant", data)
                         # Ajouter à l'historique de la conversation
-                        self.ui.response_handler.add_to_conversation(text, data)
+                        self.ui.response_handler.add_to_conversation(self.last_question, data)
                         # Vérifier si la réponse nécessite des suggestions
-                        self.ui.show_response_suggestions(text, data)
+                        self.ui.show_response_suggestions(self.last_question, data)
+                    # Apply markdown formatting to code blocks
+                    self.ui.apply_markdown_to_last_message()
                     self.is_processing = False
+                    self.ui.set_generating_state(False)
                     self.ui.set_enabled(True)
 
+                elif msg_type == "stopped":
+                    # Handle partial response from stopped generation
+                    if data.strip():
+                        conv = self.conv_manager.get_current()
+                        if conv:
+                            self.conv_manager.add_message("assistant", data)
+                    self.is_processing = False
+                    self.ui.set_generating_state(False)
+                    self.ui.set_enabled(True)
+                    self.ui.set_status("Generation stopped", is_error=False)
+
                 elif msg_type == "model_switched":
-                    self.ui.set_status(f"Model: {data}", is_error=False)
+                    self._is_switching_model = False
+                    self.ui.set_status("Ready", is_error=False)
+                    self.ui.set_model(data)  # data contains model_id
+                    self.ui.set_enabled(True)
+                    self.ui.focus_input()
+                    self._update_sidebar()
+
+                elif msg_type == "switch_failed":
+                    self._is_switching_model = False
+                    self.ui.set_status(f"Failed to switch model: {data}", is_error=True)
                     self.ui.set_enabled(True)
                     self.ui.focus_input()
 
@@ -135,9 +167,35 @@ class App(ctk.CTk):
         current_id = self.conv_manager.current_id
         self.ui.update_sidebar(conversations, current_id)
 
+    def _on_stop(self):
+        """Handle stop button click."""
+        if self.is_processing:
+            # Signal LLM to stop
+            self.llm.stop_generation()
+
+            # Wait for thread to finish (with timeout)
+            if self._generation_thread:
+                self._generation_thread.join(timeout=2)
+                self._generation_thread = None  # Clear thread reference
+
+            # Reset state
+            self.is_processing = False
+            self.ui.set_generating_state(False)
+            self.ui.set_enabled(True)
+            self.ui.set_status("Generation stopped", is_error=False)
+
     def _on_send(self, text: str):
         if self.is_processing:
             return
+
+        # Safety check: if a previous thread still exists, wait for it
+        if self._generation_thread and self._generation_thread.is_alive():
+            print("[App] Warning: Previous generation thread still alive, waiting...")
+            self._generation_thread.join(timeout=1)
+            self._generation_thread = None
+
+        # Store the question for later use in response processing
+        self.last_question = text
 
         if not self.llm.is_ready:
             # Check if there's a download in progress
@@ -154,11 +212,17 @@ class App(ctk.CTk):
         if not conv:
             conv = self.conv_manager.create_conversation()
 
+        # Store the last question for response handling
+        self.last_question = text
+
         self.conv_manager.add_message("user", text)
         self.ui.add_message("You", text)
 
         self.is_processing = True
         self.ui.set_enabled(False)
+
+        # Reset stop flag for new generation
+        self.llm.reset_stop_flag()
 
         # Get current conversation's document IDs for RAG filtering
         allowed_docs = conv.document_ids if conv else []
@@ -167,14 +231,23 @@ class App(ctk.CTk):
             try:
                 response = ""
                 for chunk in self.llm.generate(text, allowed_document_sources=allowed_docs):
+                    if self.llm._stop_requested.is_set():
+                        break
                     response += chunk
                     self.message_queue.put(("response", chunk))
-                self.message_queue.put(("response_done", response))
+                if self.llm._stop_requested.is_set():
+                    self.message_queue.put(("stopped", response))
+                else:
+                    self.message_queue.put(("response_done", response))
             except Exception as e:
                 self.message_queue.put(("error", str(e)))
                 self.message_queue.put(("response_done", ""))
 
-        threading.Thread(target=generate, daemon=True).start()
+        self._generation_thread = threading.Thread(target=generate, daemon=True)
+        self._generation_thread.start()
+
+        # Tell UI to show stop button
+        self.ui.set_generating_state(True)
 
     def _on_clear(self):
         if messagebox.askyesno("Clear Chat", "Clear current chat history?"):
@@ -265,6 +338,7 @@ class App(ctk.CTk):
                 self.model_manager.set_active_model(model_id)
 
                 # Disable UI during switch
+                self._is_switching_model = True
                 self.ui.set_enabled(False)
                 self.ui.set_status("Switching model...", is_error=False)
 
@@ -281,10 +355,16 @@ class App(ctk.CTk):
                             self.llm.update_skills_content(self.skills_manager)
                             self.message_queue.put(("model_switched", model_id))
                         else:
-                            self.message_queue.put(("error", "Failed to switch model"))
+                            # Get the specific error from LLM engine
+                            error_msg = self.llm.error if hasattr(self.llm, 'error') else "Failed to switch model"
+                            self.message_queue.put(("error", f"Failed to switch model: {error_msg}"))
+                            # Ensure UI is re-enabled on failure
+                            self.message_queue.put(("switch_failed", error_msg))
 
                     except Exception as e:
                         self.message_queue.put(("error", str(e)))
+                        # Ensure UI is re-enabled on exception
+                        self.message_queue.put(("switch_failed", str(e)))
 
                 threading.Thread(target=switch, daemon=True).start()
 

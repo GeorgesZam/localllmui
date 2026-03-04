@@ -118,6 +118,18 @@ class ModelManager:
         except Exception as e:
             print(f"[ModelManager] Error saving state: {e}")
 
+    def _normalize_path(self, path: Path) -> str:
+        """
+        Convert a path to absolute resolved path.
+
+        Args:
+            path: Path object to normalize
+
+        Returns:
+            String representation of absolute, resolved path
+        """
+        return str(path.resolve())
+
     def get_installed_models(self) -> List[InstalledModel]:
         """Get list of installed models."""
         return list(self._installed_models.values())
@@ -133,9 +145,41 @@ class ModelManager:
         return None
 
     def get_model_path(self, model_id: str) -> Optional[str]:
-        """Get the file path for an installed model."""
-        if model_id in self._installed_models:
-            return self._installed_models[model_id].filepath
+        """
+        Get the file path for an installed model.
+
+        Returns an absolute path if the model exists, None otherwise.
+        Will attempt to relocate the model if the stored path is invalid.
+        """
+        if model_id not in self._installed_models:
+            print(f"[ModelManager] Model '{model_id}' not found in installed models")
+            return None
+
+        filepath = self._installed_models[model_id].filepath
+        path = Path(filepath)
+
+        # If relative, resolve against models_dir
+        if not path.is_absolute():
+            print(f"[ModelManager] Converting relative path to absolute for {model_id}")
+            path = self.models_dir / path
+
+        # Check if file exists at stored location
+        if path.exists():
+            return self._normalize_path(path)
+
+        # File not found at stored path - try to relocate in models_dir
+        print(f"[ModelManager] Model file not found at stored path: {path}, attempting to relocate...")
+        for model_file in self.models_dir.glob("*.gguf"):
+            if model_file.stem == model_id or model_id in model_file.name.lower():
+                # Found it! Update the stored path
+                normalized_path = self._normalize_path(model_file)
+                self._installed_models[model_id].filepath = normalized_path
+                self._save_state()
+                print(f"[ModelManager] Relocated model '{model_id}' to: {normalized_path}")
+                return normalized_path
+
+        # Model file completely missing
+        print(f"[ModelManager] Error: Model file not found for '{model_id}'. Checked: {path}")
         return None
 
     def set_active_model(self, model_id: str) -> bool:
@@ -173,7 +217,7 @@ class ModelManager:
                         if model.id not in self._installed_models:
                             installed = InstalledModel(
                                 model_id=model.id,
-                                filepath=str(filepath),
+                                filepath=self._normalize_path(filepath),
                                 file_size_bytes=filepath.stat().st_size,
                                 installed_date="unknown",
                                 is_active=False
@@ -188,7 +232,7 @@ class ModelManager:
                     if model_id not in self._installed_models:
                         installed = InstalledModel(
                             model_id=model_id,
-                            filepath=str(filepath),
+                            filepath=self._normalize_path(filepath),
                             file_size_bytes=filepath.stat().st_size,
                             installed_date="unknown",
                             is_active=False
@@ -270,7 +314,7 @@ class ModelManager:
                 import datetime
                 installed = InstalledModel(
                     model_id=model_id,
-                    filepath=str(dest_path),
+                    filepath=self._normalize_path(dest_path),
                     file_size_bytes=dest_path.stat().st_size,
                     installed_date=datetime.datetime.now().isoformat(),
                     is_active=False

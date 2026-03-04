@@ -90,10 +90,7 @@ class ResponseImprover:
         if any(word in question_lower for word in ["bug", "error", "problem", "issue"]):
             suggestions["technical"] = "Describe the specific error message or problem you're facing."
 
-        # Vérifier si la demande est claire
-        if not any(word in question_lower for word in ["how", "why", "what is", "when", "where", "who"]):
-            suggestions["structure"] = "Make sure your question starts with a question word (How, What, Why, etc.)."
-
+        
         return suggestions
 
     def improve_response(self, original_response: str, question: str,

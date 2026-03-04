@@ -2,6 +2,32 @@
 
 Chat UI local avec RAG et exécution de code.
 
+## Installation et exécution
+
+### Prérequis
+- Python 3.9+
+- uv (gestionnaire de paquets Python)
+- Modèles GGUF téléchargés dans le dossier `models/`
+
+### Première exécution
+
+1. Installez les dépendances :
+   ```bash
+   uv add llama-cpp-python sentence-transformers
+   ```
+
+2. Lancez l'application :
+   ```bash
+   ./run.sh
+   ```
+
+### Notes importantes
+
+- L'application utilise un virtual environment automatiquement créé par uv
+- Le script `run.sh` configure correctement le PYTHONPATH et active le virtual environment
+- Les modèles sont chargés depuis le dossier `models/` (qwen2.5-0.5b et qwen2.5-1.5b)
+- Le modèle 0.5B est plus rapide mais moins précis, le 1.5B est plus lent mais plus précis
+
 ## Architecture
 
 ```mermaid
