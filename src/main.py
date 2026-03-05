@@ -5,6 +5,21 @@ import queue
 from pathlib import Path
 from typing import Optional
 
+# CRITICAL FIX: Add src directory to path for PyInstaller standalone builds
+# This ensures imports work when bundled in a single .exe
+if getattr(sys, 'frozen', False):
+    # Running as PyInstaller bundle
+    if hasattr(sys, '_MEIPASS'):
+        src_path = os.path.join(sys._MEIPASS, 'src')
+    else:
+        src_path = os.path.join(os.path.dirname(sys.executable), 'src')
+else:
+    # Running from source
+    src_path = os.path.join(os.path.dirname(__file__))
+
+if src_path not in sys.path:
+    sys.path.insert(0, src_path)
+
 import customtkinter as ctk
 from tkinter import filedialog, messagebox
 

@@ -41,19 +41,20 @@ def collect_llama_cpp_dlls():
 # Collect DLLs before defining Analysis
 llama_dlls = collect_llama_cpp_dlls()
 
-# Collect all source files
+# CRITICAL: Collect ALL source files from src directory
+# This ensures all modules are available in the standalone exe
 src_dir = Path('src')
-datas = [
-    (str(src_dir / 'config.py'), 'src'),
-    (str(src_dir / 'llm.py'), 'src'),
-    (str(src_dir / 'rag.py'), 'src'),
-    (str(src_dir / 'ui.py'), 'src'),
-    (str(src_dir / 'conversations.py'), 'src'),
-    (str(src_dir / 'ocr.py'), 'src'),
-    (str(src_dir / 'utils.py'), 'src'),
-    (str(src_dir / 'patterns.py'), 'src'),
-    (str(src_dir / 'windows_helper.py'), 'src'),
-]
+datas = []
+
+# Add all .py files from src directory
+for py_file in src_dir.glob('*.py'):
+    datas.append((str(py_file), 'src'))
+
+# Also collect subdirectories if any (though currently src is flat)
+for item in src_dir.rglob('*.py'):
+    if item.parent != src_dir:
+        rel_path = item.relative_to(src_dir)
+        datas.append((str(item), str(rel_path.parent)))
 
 # CRITICAL: Include models in the standalone exe
 # Add models directory if it exists
@@ -88,7 +89,13 @@ a = Analysis(
     binaries=llama_dlls,  # Add collected llama_cpp DLLs
     datas=datas,
     hiddenimports=[
+        'tkinter',
+        'tkinter.filedialog',
+        'tkinter.messagebox',
+        'tkinter.ttk',
         'customtkinter',
+        'customtkinter.windows',
+        'customtkinter.windows.widgets',
         'llama_cpp',
         'sentence_transformers',
         'sentence_transformers.models',
