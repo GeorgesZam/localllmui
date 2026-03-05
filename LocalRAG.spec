@@ -1,7 +1,9 @@
 # -*- mode: python ; coding: utf-8 -*-
 """
-PyInstaller spec file for Local RAG Application
-Works on Windows, macOS, and Linux
+PyInstaller spec file for Local RAG Application - STANDALONE ONE-FILE
+
+This creates a single .exe file that contains everything needed to run the application.
+No external files or dependencies required - just run the .exe on any Windows PC.
 """
 
 import os
@@ -53,6 +55,7 @@ datas = [
     (str(src_dir / 'windows_helper.py'), 'src'),
 ]
 
+# CRITICAL: Include models in the standalone exe
 # Add models directory if it exists
 models_dir = Path('models')
 if models_dir.exists():
@@ -71,11 +74,11 @@ if models_dir.exists():
     elif (models_dir / 'qwen2.5-0.5b-instruct-q4_k_m.gguf').exists():
         datas.append((str(models_dir / 'qwen2.5-0.5b-instruct-q4_k_m.gguf'), 'models'))
 
-# Add data directory
+# Add data directory if it exists
 data_dir = Path('data')
 if data_dir.exists():
     for item in data_dir.rglob('*'):
-        if item.is_file():
+        if item.isfile():
             rel_path = item.relative_to(data_dir)
             datas.append((str(item), str(Path('data') / rel_path.parent)))
 
@@ -136,13 +139,8 @@ a = Analysis(
     ],
     hookspath=[],
     hooksconfig={},
-    runtime_hooks=['pyi_rth_customtkinter.py', 'pyi_rth_llama_cpp.py', 'pyi_rth_tiktoken.py'],  # Add Windows runtime hooks
+    runtime_hooks=['pyi_rth_customtkinter.py', 'pyi_rth_llama_cpp.py', 'pyi_rth_tiktoken.py'],
     excludes=[
-        # Removed exclusions - these packages are needed:
-        # - matplotlib: required for code execution features
-        # - scipy: required by scikit-learn
-        # - pandas: required for data processing
-        # - sklearn: required for sentence transformers
     ],
     win_no_prefer_redirects=False,
     win_private_assemblies=False,
@@ -152,6 +150,8 @@ a = Analysis(
 
 pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
 
+# STANDALONE ONE-FILE EXE
+# This creates a single .exe file that contains everything
 exe = EXE(
     pyz,
     a.scripts,
@@ -162,10 +162,10 @@ exe = EXE(
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
-    upx=True,
+    upx=False,  # Disabled UPX for better compatibility (can cause issues on some PCs)
     upx_exclude=[],
     runtime_tmpdir=None,
-    console=True,  # Set to True for debugging Windows issues
+    console=True,  # Keep console for debugging - set to False for production
     disable_windowed_traceback=False,
     argv_emulation=False,
     target_arch=None,
@@ -178,12 +178,5 @@ exe = EXE(
     uac_uiaccess=False,
 )
 
-coll = COLLECT(
-    exe,
-    a.binaries,
-    a.datas,
-    strip=False,
-    upx=True,
-    upx_exclude=[],
-    name='LocalRAG',
-)
+# NO COLLECT SECTION - This is a one-file build
+# Everything is bundled into the single .exe above

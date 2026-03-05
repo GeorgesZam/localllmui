@@ -59,16 +59,17 @@ jobs:
           python -c "import llama_cpp; print('[OK] llama_cpp imported successfully')"
           python -c "from llama_cpp import Llama; print('[OK] Llama class accessible')"
 
-      - name: Build with PyInstaller using spec file
+      - name: Build with PyInstaller (STANDALONE ONE-FILE)
         run: |
           pyinstaller --clean --noconfirm LocalRAG.spec
 
       - name: Verify build output
         run: |
           Write-Host "Checking build output..."
-          if (Test-Path "dist/LocalRAG/LocalRAG.exe") {
-            $size = (Get-Item "dist/LocalRAG/LocalRAG.exe").Length / 1MB
+          if (Test-Path "dist/LocalRAG.exe") {
+            $size = (Get-Item "dist/LocalRAG.exe").Length / 1MB
             Write-Host "[OK] Build successful! Size: $([math]::Round($size, 2)) MB"
+            Write-Host "This is a STANDALONE .exe - no other files needed!"
           } else {
             Write-Host "[FAIL] Build failed - exe not found"
             Get-ChildItem -Path dist -Recurse | Write-Host
@@ -76,25 +77,16 @@ jobs:
           }
         shell: pwsh
 
-      - name: Check for required files in build
-        run: |
-          Write-Host "Checking required files in build..."
-          $required = @('dist/LocalRAG/LocalRAG.exe', 'dist/LocalRAG/models')
-          foreach ($file in $required) {
-            if (Test-Path $file) { Write-Host "[OK] $file exists" } else { Write-Host "[FAIL] $file missing" }
-          }
-        shell: pwsh
-
       - name: Create distribution zip
         run: |
-          Compress-Archive -Path dist/LocalRAG -DestinationPath LocalRAG-Windows.zip
+          Compress-Archive -Path dist/LocalRAG.exe -DestinationPath LocalRAG-Standalone.exe.zip
         shell: pwsh
 
       - name: Upload Windows artifact
         uses: actions/upload-artifact@v4
         with:
-          name: LocalRAG-Windows
-          path: LocalRAG-Windows.zip
+          name: LocalRAG-Windows-Standalone
+          path: LocalRAG-Standalone.exe.zip
           retention-days: 30
 
   create-release:
@@ -112,7 +104,7 @@ jobs:
         uses: softprops/action-gh-release@v1
         with:
           files: |
-            artifacts/LocalRAG-Windows/LocalRAG-Windows.zip
+            artifacts/LocalRAG-Windows-Standalone/LocalRAG-Standalone.exe.zip
           generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
