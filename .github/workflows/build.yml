@@ -39,17 +39,16 @@ jobs:
           if (Test-Path "models/embedding_model") { Write-Host "[OK] Embedding model exists" } else { Write-Host "[FAIL] Embedding model missing"; exit 1 }
         shell: pwsh
 
-      - name: Build with PyInstaller (OLLAMA VERSION)
+      - name: Build with PyInstaller
         run: |
-          pyinstaller --clean --noconfirm LocalRAG-Ollama.spec
+          pyinstaller --clean --noconfirm LocalRAG.spec
 
       - name: Verify build output
         run: |
           Write-Host "Checking build output..."
-          if (Test-Path "dist/LocalRAG-Ollama.exe") {
-            $size = (Get-Item "dist/LocalRAG-Ollama.exe").Length / 1MB
+          if (Test-Path "dist/LocalRAG.exe") {
+            $size = (Get-Item "dist/LocalRAG.exe").Length / 1MB
             Write-Host "[OK] Build successful! Size: $([math]::Round($size, 2)) MB"
-            Write-Host "This is the OLLAMA version - user must install Ollama separately"
           } else {
             Write-Host "[FAIL] Build failed - exe not found"
             Get-ChildItem -Path dist -Recurse | Write-Host
@@ -59,14 +58,14 @@ jobs:
 
       - name: Create distribution zip
         run: |
-          Compress-Archive -Path dist/LocalRAG-Ollama.exe -DestinationPath LocalRAG-Ollama-Windows.zip
+          Compress-Archive -Path dist/LocalRAG.exe -DestinationPath LocalRAG-Windows.zip
         shell: pwsh
 
       - name: Upload Windows artifact
         uses: actions/upload-artifact@v4
         with:
-          name: LocalRAG-Windows-Ollama
-          path: LocalRAG-Ollama-Windows.zip
+          name: LocalRAG-Windows
+          path: LocalRAG-Windows.zip
           retention-days: 30
 
   create-release:
@@ -84,25 +83,18 @@ jobs:
         uses: softprops/action-gh-release@v1
         with:
           files: |
-            artifacts/LocalRAG-Windows-Ollama/LocalRAG-Ollama-Windows.zip
+            artifacts/LocalRAG-Windows/LocalRAG-Windows.zip
           generate_release_notes: true
           body: |
-            ## LocalRAG - Ollama Version
+            ## LocalRAG - llama.cpp Version
 
-            This version uses [Ollama](https://ollama.com) for better performance.
+            This version uses llama.cpp for local LLM inference.
 
-            ### Just Run It!
+            ### Requirements
+            - Download a GGUF model file and place it in the `models/` folder
+            - Recommended: Qwen 2.5 0.5B Instruct (q4_k_m quantization)
 
-            **No manual installation needed!** The app will automatically:
-            1. Download Ollama if not installed
-            2. Install it for you
-            3. Pull the default model
-            4. Start chatting!
-
-            ### Available Models
-            - `qwen2.5:0.5b` - Smallest, fastest (default)
-            - `qwen2.5:1.5b` - Better quality
-            - `phi3:mini` - Great performance
-            - `llama3.2:1b` - Meta's model
+            ### Model Download
+            Find models at: https://huggingface.co/models?search=gguf
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
