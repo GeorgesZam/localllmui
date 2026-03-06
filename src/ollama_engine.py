@@ -484,10 +484,8 @@ class OllamaEngine(Observable, metaclass=SingletonMeta):
         else:
             self._enabled_skills_content = ""
 
-    def _build_messages(self, message: str, rag_context: str = "") -> list:
-        """Build messages for Ollama API."""
-        messages = []
-
+    def _build_prompt(self, message: str, rag_context: str = "") -> str:
+        """Build prompt for Ollama /api/generate endpoint."""
         # Build system prompt
         base_system = self._config.SYSTEM_PROMPT
         if self._enabled_skills_content:
@@ -505,17 +503,19 @@ class OllamaEngine(Observable, metaclass=SingletonMeta):
 
 Answer based on context. If not found, say so."""
 
-        messages.append({"role": "system", "content": system})
+        # Build conversation prompt
+        prompt = f"System: {system}\n\n"
 
         # Add history
         for h in self.history[-self._max_history:]:
-            messages.append({"role": "user", "content": h['user']})
-            messages.append({"role": "assistant", "content": h['assistant']})
+            prompt += f"User: {h['user']}\n"
+            prompt += f"Assistant: {h['assistant']}\n"
 
         # Add current message
-        messages.append({"role": "user", "content": message})
+        prompt += f"User: {message}\n"
+        prompt += "Assistant:"
 
-        return messages
+        return prompt
 
     def generate(self, message: str, allowed_document_sources: list = None) -> Iterator[str]:
         """
@@ -542,17 +542,17 @@ Answer based on context. If not found, say so."""
             rag_context, sources = self.rag.search(message, allowed_sources=allowed_document_sources)
             self._current_stats.rag_results_used = len(sources)
 
-        messages = self._build_messages(message, rag_context)
+        prompt = self._build_prompt(message, rag_context)
 
         full_response = ""
         start_time = time.time()
 
         try:
             response = requests.post(
-                f"{self.base_url}/api/chat",
+                f"{self.base_url}/api/generate",
                 json={
                     "model": self.model,
-                    "messages": messages,
+                    "prompt": prompt,
                     "stream": True,
                     "options": {
                         "num_predict": self._config.MAX_TOKENS,
@@ -576,11 +576,13 @@ Answer based on context. If not found, say so."""
 
                 try:
                     data = json.loads(line.decode('utf-8'))
-                    if 'message' in data and 'content' in data['message']:
-                        token = data['message']['content']
+                    if 'response' in data:
+                        token = data['response']
                         full_response += token
                         self._current_stats.tokens_generated += 1
                         yield token
+                    if data.get('done', False):
+                        break
                 except json.JSONDecodeError:
                     continue
 

@@ -23,13 +23,21 @@ if src_path not in sys.path:
 import customtkinter as ctk
 from tkinter import filedialog, messagebox
 
-# Try to use Ollama engine (preferred), fallback to llama_cpp
-try:
-    from ollama_engine import OllamaEngine as LLMEngine
-    USE_OLLAMA = True
-    print("[App] Using Ollama engine")
-except ImportError:
+# Use Ollama on Windows, llama_cpp on macOS (due to Metal GPU issues)
+import platform
+USE_OLLAMA = platform.system() == "Windows"
+
+if USE_OLLAMA:
+    try:
+        from ollama_engine import OllamaEngine as LLMEngine
+        print("[App] Using Ollama engine (Windows)")
+    except ImportError:
+        from llm import LLMEngine
+        USE_OLLAMA = False
+        print("[App] Ollama not available, using llama_cpp")
+else:
     from llm import LLMEngine
+    print("[App] Using llama_cpp engine (macOS/Linux)")
     USE_OLLAMA = False
     print("[App] Using llama_cpp engine")
 from conversations import ConversationManager
