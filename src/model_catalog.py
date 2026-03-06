@@ -6,12 +6,13 @@ download URLs, and compatibility information.
 """
 
 from dataclasses import dataclass
-from typing import List, Optional
 from enum import Enum
+from typing import List, Optional
 
 
 class ModelSize(Enum):
     """Model size categories."""
+
     TINY = "Tiny (< 1B)"
     SMALL = "Small (1B-3B)"
     MEDIUM = "Medium (3B-7B)"
@@ -21,6 +22,7 @@ class ModelSize(Enum):
 
 class ModelFormat(Enum):
     """Model file formats."""
+
     GGUF = "GGUF"
     GGML = "GGML"
 
@@ -28,6 +30,7 @@ class ModelFormat(Enum):
 @dataclass
 class ModelInfo:
     """Information about a model in the catalog."""
+
     id: str
     name: str
     description: str
@@ -77,9 +80,8 @@ MODEL_CATALOG: List[ModelInfo] = [
         context_size=32768,
         requires_ram_mb=2048,
         tags=["latest", "fast", "multilingual", "reasoning"],
-        family="qwen3.5"
+        family="qwen3.5",
     ),
-
     # Qwen 2.5 - Tiny (New default)
     ModelInfo(
         id="qwen2.5-0.5b",
@@ -95,9 +97,8 @@ MODEL_CATALOG: List[ModelInfo] = [
         context_size=32768,
         requires_ram_mb=1500,
         tags=["fast", "efficient", "multilingual"],
-        family="qwen2.5"
+        family="qwen2.5",
     ),
-
     # Qwen 2.5 - 1.5B
     ModelInfo(
         id="qwen2.5-1.5b",
@@ -113,9 +114,8 @@ MODEL_CATALOG: List[ModelInfo] = [
         context_size=32768,
         requires_ram_mb=2500,
         tags=["balanced", "multilingual", "quality"],
-        family="qwen2.5"
+        family="qwen2.5",
     ),
-
     # Qwen 2.5 - 3B
     ModelInfo(
         id="qwen2.5-3b",
@@ -131,9 +131,8 @@ MODEL_CATALOG: List[ModelInfo] = [
         context_size=32768,
         requires_ram_mb=4000,
         tags=["quality", "complex-tasks", "reasoning"],
-        family="qwen2.5"
+        family="qwen2.5",
     ),
-
     # Qwen 2.5 - 7B
     ModelInfo(
         id="qwen2.5-7b",
@@ -149,9 +148,8 @@ MODEL_CATALOG: List[ModelInfo] = [
         context_size=32768,
         requires_ram_mb=8000,
         tags=["high-quality", "knowledge", "reasoning"],
-        family="qwen2.5"
+        family="qwen2.5",
     ),
-
     # Llama 3.2 - 1B
     ModelInfo(
         id="llama3.2-1b",
@@ -167,9 +165,8 @@ MODEL_CATALOG: List[ModelInfo] = [
         context_size=131072,
         requires_ram_mb=2000,
         tags=["meta", "english", "general-purpose"],
-        family="llama"
+        family="llama",
     ),
-
     # Llama 3.2 - 3B
     ModelInfo(
         id="llama3.2-3b",
@@ -185,9 +182,8 @@ MODEL_CATALOG: List[ModelInfo] = [
         context_size=131072,
         requires_ram_mb=4000,
         tags=["meta", "quality", "instruction-following"],
-        family="llama"
+        family="llama",
     ),
-
     # Phi-3.5 Mini
     ModelInfo(
         id="phi3.5-mini",
@@ -203,9 +199,8 @@ MODEL_CATALOG: List[ModelInfo] = [
         context_size=128000,
         requires_ram_mb=5000,
         tags=["microsoft", "coding", "reasoning", "compact"],
-        family="phi"
+        family="phi",
     ),
-
     # Gemma 2 - 2B
     ModelInfo(
         id="gemma2-2b",
@@ -221,7 +216,7 @@ MODEL_CATALOG: List[ModelInfo] = [
         context_size=8192,
         requires_ram_mb=3000,
         tags=["google", "efficient", "general-purpose"],
-        family="gemma"
+        family="gemma",
     ),
 ]
 

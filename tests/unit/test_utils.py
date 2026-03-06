@@ -19,12 +19,12 @@ from utils import get_resource_path, get_writable_path, log_message, get_file_ha
 class TestGetResourcePath:
     """Test cases for get_resource_path function."""
 
-    def test_returns_relative_path_when_not_bundled(self):
+    def test_returns_absolute_path_when_not_bundled(self):
         """
         AAA Test:
         Arrange: Set up test environment without PyInstaller bundle
         Act: Call get_resource_path with a relative path
-        Assert: Verify the returned path is correct
+        Assert: Verify the returned path is absolute and contains input
         """
         # Arrange
         test_path = "config.json"
@@ -37,7 +37,9 @@ class TestGetResourcePath:
             result = get_resource_path(test_path)
 
             # Assert
-            assert result == test_path
+            # Function returns absolute path from project root
+            assert os.path.isabs(result)
+            assert test_path in result or result.endswith(test_path)
         finally:
             # Cleanup
             if original_meipass:
@@ -85,7 +87,9 @@ class TestGetResourcePath:
 
             # Assert
             assert result1 == result2
-            assert result1 == test_path
+            # Result is absolute path
+            assert os.path.isabs(result1)
+            assert test_path in result1
         finally:
             # Cleanup
             if original_meipass:

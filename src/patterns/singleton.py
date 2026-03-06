@@ -4,17 +4,12 @@ Singleton Pattern Implementation.
 Ensures a class has only one instance and provides a global point of access to it.
 
 Usage:
-    @Singleton
-    class MySingleton:
-        pass
-
-    # Or using metaclass
     class MySingleton(metaclass=SingletonMeta):
         pass
 """
 
 import threading
-from typing import Dict, Any, Type, Optional
+from typing import Any, Dict, Type
 
 
 class SingletonMeta(type):
@@ -48,104 +43,3 @@ class SingletonMeta(type):
     def is_initialized(mcs, cls: Type) -> bool:
         """Check if a singleton instance exists."""
         return cls in mcs._instances
-
-
-def Singleton(cls: Type) -> Type:
-    """
-    Class decorator for implementing Singleton pattern.
-
-    Usage:
-        @Singleton
-        class MyClass:
-            pass
-
-        obj1 = MyClass()
-        obj2 = MyClass()
-        assert obj1 is obj2  # True
-    """
-    original_new = cls.__new__
-
-    def __new__(singleton_cls, *args, **kwargs):
-        if not hasattr(singleton_cls, '_instance'):
-            singleton_cls._instance = original_new(singleton_cls, *args, **kwargs)
-        return singleton_cls._instance
-
-    cls.__new__ = __new__
-
-    # Add reset method for testing
-    def reset_instance(singleton_cls) -> None:
-        if hasattr(singleton_cls, '_instance'):
-            delattr(singleton_cls, '_instance')
-
-    cls.reset = classmethod(reset_instance)
-
-    # Add is_initialized method
-    def is_initialized(singleton_cls) -> bool:
-        return hasattr(singleton_cls, '_instance')
-
-    cls.is_initialized = classmethod(is_initialized)
-
-    return cls
-
-
-class LazySingleton:
-    """
-    Base class for lazy-loaded singletons.
-
-    The instance is created only when first accessed.
-
-    Usage:
-        class MySingleton(LazySingleton):
-            def __init__(self):
-                self.value = 42
-
-        instance = MySingleton.get_instance()
-    """
-
-    _instance: Optional['LazySingleton'] = None
-    _lock = threading.Lock()
-
-    @classmethod
-    def get_instance(cls) -> 'LazySingleton':
-        """Get the singleton instance, creating it if necessary."""
-        if cls._instance is None:
-            with cls._lock:
-                if cls._instance is None:
-                    cls._instance = cls()
-        return cls._instance
-
-    @classmethod
-    def reset(cls) -> None:
-        """Reset the singleton instance (useful for testing)."""
-        with cls._lock:
-            cls._instance = None
-
-    @classmethod
-    def is_initialized(cls) -> bool:
-        """Check if the singleton instance exists."""
-        return cls._instance is not None
-
-
-class ThreadSafeSingleton:
-    """
-    Thread-safe singleton using instance locking.
-
-    Provides instance-level locking for thread-safe operations.
-    """
-
-    def __new__(cls):
-        if not hasattr(cls, '_instance'):
-            with cls._lock:
-                if not hasattr(cls, '_instance'):
-                    cls._instance = super().__new__(cls)
-                    cls._instance._lock = threading.RLock()
-        return cls._instance
-
-    _lock = threading.Lock()
-
-    def with_lock(self, func):
-        """Execute a function with the instance lock held."""
-        def wrapper(*args, **kwargs):
-            with self._lock:
-                return func(*args, **kwargs)
-        return wrapper

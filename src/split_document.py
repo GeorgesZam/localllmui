@@ -9,8 +9,8 @@ Example:
     python src/split_document.py large_document.txt split_docs/
 """
 
-import sys
 import os
+import sys
 from pathlib import Path
 
 
@@ -42,7 +42,7 @@ def split_document(input_file: str, output_dir: str = None, max_chars: int = 200
 
     # Read the document
     try:
-        with open(input_path, 'r', encoding='utf-8', errors='ignore') as f:
+        with open(input_path, "r", encoding="utf-8", errors="ignore") as f:
             content = f.read()
     except Exception as e:
         print(f"Error reading file: {e}")
@@ -52,7 +52,7 @@ def split_document(input_file: str, output_dir: str = None, max_chars: int = 200
     ext = input_path.suffix
 
     # Split by paragraphs first for better chunks
-    paragraphs = content.split('\n\n')
+    paragraphs = content.split("\n\n")
 
     chunks = []
     current_chunk = ""
@@ -65,7 +65,7 @@ def split_document(input_file: str, output_dir: str = None, max_chars: int = 200
 
         # If paragraph itself is too long, split by sentences
         if len(para) > max_chars:
-            sentences = para.split('. ')
+            sentences = para.split(". ")
             for sentence in sentences:
                 sentence = sentence.strip()
                 if not sentence:
@@ -95,7 +95,7 @@ def split_document(input_file: str, output_dir: str = None, max_chars: int = 200
     print(f"Created {len(chunks)} chunks:")
     for i, chunk in enumerate(chunks, 1):
         output_file = output_path / f"{input_path.stem}_part{i}{ext}"
-        with open(output_file, 'w', encoding='utf-8') as f:
+        with open(output_file, "w", encoding="utf-8") as f:
             f.write(chunk)
         print(f"  {output_file.name} ({len(chunk)} chars)")
 

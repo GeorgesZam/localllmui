@@ -5,20 +5,23 @@ This module handles pulling Ollama models from the registry,
 with progress tracking and error handling.
 """
 
-import os
-import threading
-import subprocess
-from pathlib import Path
-from typing import Optional, Callable, Dict, List
-from dataclasses import dataclass
 import json
+import os
+import subprocess
+import threading
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Callable, Dict, List, Optional
 
-from ollama_catalog import OllamaModelInfo, get_ollama_model_by_id, OLLAMA_MODEL_CATALOG, get_installed_ollama_models
+from ollama_catalog import (OLLAMA_MODEL_CATALOG, OllamaModelInfo,
+                            get_installed_ollama_models,
+                            get_ollama_model_by_id)
 
 
 @dataclass
 class OllamaPullProgress:
     """Progress information for an Ollama model pull."""
+
     model_id: str
     ollama_name: str
     status: str  # "pulling", "verifying", "completed", "error"
@@ -59,7 +62,9 @@ class OllamaModelManager:
                 if model.ollama_name in installed:
                     self._installed_models[model.id] = model.ollama_name
 
-            print(f"[OllamaManager] Found {len(self._installed_models)} catalog models installed")
+            print(
+                f"[OllamaManager] Found {len(self._installed_models)} catalog models installed"
+            )
         except Exception as e:
             print(f"[OllamaManager] Error scanning models: {e}")
 
@@ -102,7 +107,7 @@ class OllamaModelManager:
         self,
         model_id: str,
         on_progress: Optional[Callable[[OllamaPullProgress], None]] = None,
-        on_complete: Optional[Callable[[bool, str], None]] = None
+        on_complete: Optional[Callable[[bool, str], None]] = None,
     ) -> Optional[threading.Thread]:
         """
         Pull a model from Ollama registry.
@@ -131,25 +136,28 @@ class OllamaModelManager:
                     percentage=0.0,
                     downloaded_mb=0.0,
                     total_mb=float(model_info.file_size_mb),
-                    speed_mb_s=0.0
+                    speed_mb_s=0.0,
                 )
 
                 if on_progress:
                     on_progress(self._current_pull)
 
                 # Run ollama pull
-                print(f"[OllamaManager] Pulling {model_info.name} ({model_info.ollama_name})")
+                print(
+                    f"[OllamaManager] Pulling {model_info.name} ({model_info.ollama_name})"
+                )
 
                 process = subprocess.Popen(
                     ["ollama", "pull", model_info.ollama_name],
                     stdout=subprocess.PIPE,
                     stderr=subprocess.STDOUT,
                     text=True,
-                    bufsize=1
+                    bufsize=1,
                 )
 
                 # Parse output for progress
                 import time
+
                 start_time = time.time()
 
                 for line in process.stdout:
@@ -164,7 +172,9 @@ class OllamaModelManager:
                                 pct_str = line.split("%")[0].split()[-1]
                                 self._current_pull.percentage = float(pct_str)
                                 self._current_pull.downloaded_mb = (
-                                    self._current_pull.total_mb * self._current_pull.percentage / 100
+                                    self._current_pull.total_mb
+                                    * self._current_pull.percentage
+                                    / 100
                                 )
                             except (ValueError, IndexError):
                                 pass
@@ -195,9 +205,13 @@ class OllamaModelManager:
                         on_progress(self._current_pull)
 
                     if on_complete:
-                        on_complete(True, f"Model {model_info.name} pulled successfully!")
+                        on_complete(
+                            True, f"Model {model_info.name} pulled successfully!"
+                        )
                 else:
-                    raise Exception(f"Pull failed with return code {process.returncode}")
+                    raise Exception(
+                        f"Pull failed with return code {process.returncode}"
+                    )
 
             except subprocess.TimeoutExpired:
                 error_msg = "Pull timed out"
@@ -256,7 +270,7 @@ class OllamaModelManager:
                 ["ollama", "rm", ollama_name],
                 capture_output=True,
                 text=True,
-                timeout=60
+                timeout=60,
             )
 
             if result.returncode == 0:
@@ -285,4 +299,5 @@ class OllamaModelManager:
     def get_recommended_catalog(self) -> List[OllamaModelInfo]:
         """Get recommended models for display."""
         from ollama_catalog import get_recommended_ollama_models
+
         return get_recommended_ollama_models()

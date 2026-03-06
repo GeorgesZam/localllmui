@@ -20,6 +20,8 @@ dependencies = [
     "reportlab>=4.0.0",
     "matplotlib>=3.7.0",
     "psutil>=5.9.0",
+    "isort>=6.1.0",
+    "coverage>=7.10.7",
 ]
 
 [tool.uv]

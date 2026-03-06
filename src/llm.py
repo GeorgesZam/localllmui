@@ -8,18 +8,19 @@ with observable progress reporting during model loading and generation.
 import os
 import re
 import threading
-from typing import Iterator, Optional, Callable
 from dataclasses import dataclass
+from typing import Callable, Iterator, Optional
 
-from patterns import SingletonMeta, Observable, Event, StateEvent
 from config import ConfigManager
-from utils import get_resource_path
+from patterns import Event, Observable, SingletonMeta, StateEvent
 from rag import RAG
+from utils import get_resource_path
 
 
 @dataclass
 class GenerationStats:
     """Statistics for a generation run."""
+
     tokens_generated: int = 0
     time_elapsed: float = 0.0
     tokens_per_second: float = 0.0
@@ -48,7 +49,7 @@ class LLMEngine(Observable, metaclass=SingletonMeta):
 
     def __init__(self):
         # Only initialize once (Singleton pattern)
-        if hasattr(self, '_initialized'):
+        if hasattr(self, "_initialized"):
             return
 
         # Initialize Observable base class
@@ -84,7 +85,7 @@ class LLMEngine(Observable, metaclass=SingletonMeta):
         self._initialized = True
 
     @classmethod
-    def get_instance(cls) -> 'LLMEngine':
+    def get_instance(cls) -> "LLMEngine":
         """Get the singleton LLM engine instance."""
         return cls()
 
@@ -96,7 +97,11 @@ class LLMEngine(Observable, metaclass=SingletonMeta):
         """Reset stop flag for new generation."""
         self._stop_requested.clear()
 
-    def load(self, on_progress: Optional[Callable[[str], None]] = None, model_path: Optional[str] = None) -> bool:
+    def load(
+        self,
+        on_progress: Optional[Callable[[str], None]] = None,
+        model_path: Optional[str] = None,
+    ) -> bool:
         """
         Load the LLM model and initialize RAG.
 
@@ -107,34 +112,33 @@ class LLMEngine(Observable, metaclass=SingletonMeta):
         Returns:
             True if loading successful
         """
+
         def log(msg: str) -> None:
             """Log message and notify observers."""
             print(f"[LLM] {msg}")
             if on_progress:
                 on_progress(msg)
-            self.notify(StateEvent.create(
-                StateEvent.LOADING,
-                {'message': msg}
-            ))
+            self.notify(StateEvent.create(StateEvent.LOADING, {"message": msg}))
 
         try:
             # Initialize RAG if not already initialized
             if self.rag is None:
                 # Notify loading started
-                self.notify(StateEvent.create(
-                    StateEvent.LOADING,
-                    {'stage': 'rag_init'}
-                ))
+                self.notify(
+                    StateEvent.create(StateEvent.LOADING, {"stage": "rag_init"})
+                )
 
                 # Initialize RAG
                 self.rag = RAG()
                 self.rag.initialize(log)
 
                 # Notify RAG loaded
-                self.notify(StateEvent.create(
-                    StateEvent.LOADING,
-                    {'stage': 'rag_complete', 'documents': len(self.rag.documents)}
-                ))
+                self.notify(
+                    StateEvent.create(
+                        StateEvent.LOADING,
+                        {"stage": "rag_complete", "documents": len(self.rag.documents)},
+                    )
+                )
             else:
                 log("RAG already initialized, skipping...")
 
@@ -163,10 +167,10 @@ class LLMEngine(Observable, metaclass=SingletonMeta):
                 try:
                     # Properly cleanup llama_cpp model
                     # The model needs to be explicitly closed to free mmap and GPU resources
-                    if hasattr(self.llm, 'close'):
+                    if hasattr(self.llm, "close"):
                         self.llm.close()
                     # Also try __exit__ for context manager cleanup
-                    if hasattr(self.llm, '__exit__'):
+                    if hasattr(self.llm, "__exit__"):
                         self.llm.__exit__(None, None, None)
                 except Exception as cleanup_error:
                     log(f"Warning during cleanup: {cleanup_error}")
@@ -181,15 +185,15 @@ class LLMEngine(Observable, metaclass=SingletonMeta):
 
                 # Force garbage collection to free memory immediately
                 import gc
+
                 gc.collect()
                 log("Previous model unloaded")
 
             # Load model
             log("Loading model...")
-            self.notify(StateEvent.create(
-                StateEvent.LOADING,
-                {'stage': 'model_loading'}
-            ))
+            self.notify(
+                StateEvent.create(StateEvent.LOADING, {"stage": "model_loading"})
+            )
 
             self.llm = Llama(
                 model_path=actual_model_path,
@@ -199,7 +203,7 @@ class LLMEngine(Observable, metaclass=SingletonMeta):
                 n_batch=512,
                 use_mmap=True,
                 use_mlock=False,
-                verbose=False
+                verbose=False,
             )
 
             # Clear history when switching models
@@ -212,10 +216,9 @@ class LLMEngine(Observable, metaclass=SingletonMeta):
             log("Ready!")
 
             # Notify ready state
-            self.notify(StateEvent.create(
-                StateEvent.READY,
-                {'model': actual_model_path}
-            ))
+            self.notify(
+                StateEvent.create(StateEvent.READY, {"model": actual_model_path})
+            )
 
             return True
 
@@ -224,7 +227,11 @@ class LLMEngine(Observable, metaclass=SingletonMeta):
             error_str = str(e)
 
             # Provide more helpful error messages for common issues
-            if "corrupted" in error_str.lower() or "incomplete" in error_str.lower() or "not within the file bounds" in error_str.lower():
+            if (
+                "corrupted" in error_str.lower()
+                or "incomplete" in error_str.lower()
+                or "not within the file bounds" in error_str.lower()
+            ):
                 error_str = f"Model file is corrupted or incomplete. Please re-download the model.\nOriginal error: {error_str}"
             elif "failed to load model from file" in error_str.lower():
                 error_str = f"Failed to load model. The file may be corrupted or incompatible.\nOriginal error: {error_str}"
@@ -232,12 +239,10 @@ class LLMEngine(Observable, metaclass=SingletonMeta):
             log(f"Error: {error_str}")
 
             # Notify error state
-            self.notify(StateEvent.create(
-                StateEvent.ERROR,
-                {'error': error_str}
-            ))
+            self.notify(StateEvent.create(StateEvent.ERROR, {"error": error_str}))
 
             import traceback
+
             traceback.print_exc()
             return False
 
@@ -252,12 +257,15 @@ class LLMEngine(Observable, metaclass=SingletonMeta):
             enhanced_prompt, skill_names = self.skills_executor.apply_skills_to_prompt(
                 "", base_prompt
             )
-            self._enabled_skills_content = enhanced_prompt.replace(base_prompt, "").strip()
+            self._enabled_skills_content = enhanced_prompt.replace(
+                base_prompt, ""
+            ).strip()
         else:
             self._enabled_skills_content = ""
 
-    def _build_prompt(self, message: str, rag_context: str = "",
-                      enable_code: bool = False) -> str:
+    def _build_prompt(
+        self, message: str, rag_context: str = "", enable_code: bool = False
+    ) -> str:
         """Build prompt for the LLM."""
         # Build base system prompt
         base_system = self._config.SYSTEM_PROMPT
@@ -284,7 +292,7 @@ Answer based on context. If not found, say so."""
 
         prompt = f"<|im_start|>system\n{system}<|im_end|>\n"
 
-        for h in self.history[-self._max_history:]:
+        for h in self.history[-self._max_history :]:
             prompt += f"<|im_start|>user\n{h['user']}<|im_end|>\n"
             prompt += f"<|im_start|>assistant\n{h['assistant']}<|im_end|>\n"
 
@@ -293,7 +301,9 @@ Answer based on context. If not found, say so."""
 
         return prompt
 
-    def generate(self, message: str, allowed_document_sources: list = None) -> Iterator[str]:
+    def generate(
+        self, message: str, allowed_document_sources: list = None
+    ) -> Iterator[str]:
         """
         Generate response for the given message.
 
@@ -312,10 +322,10 @@ Answer based on context. If not found, say so."""
         self._current_stats = GenerationStats()
 
         # Check if code execution needed
-        if (self._config.CODE_EXECUTION_AUTO_DETECT and
-                self.code_execution_enabled):
+        if self._config.CODE_EXECUTION_AUTO_DETECT and self.code_execution_enabled:
             try:
                 from code_executor import CodeDetector
+
                 needs_code, _ = CodeDetector.detect_code_request(message)
 
                 if needs_code:
@@ -330,7 +340,9 @@ Answer based on context. If not found, say so."""
         sources = []
 
         if self._config.RAG_ENABLED and self.rag and self.rag.documents:
-            rag_context, sources = self.rag.search(message, allowed_sources=allowed_document_sources)
+            rag_context, sources = self.rag.search(
+                message, allowed_sources=allowed_document_sources
+            )
             self._current_stats.rag_results_used = len(sources)
 
         prompt = self._build_prompt(message, rag_context)
@@ -345,7 +357,7 @@ Answer based on context. If not found, say so."""
                 temperature=self._config.TEMPERATURE,
                 top_p=self._config.TOP_P,
                 repeat_penalty=self._config.REPEAT_PENALTY,
-                stream=True
+                stream=True,
             ):
                 # Check if stop was requested
                 if self._stop_requested.is_set():
@@ -369,29 +381,42 @@ Answer based on context. If not found, say so."""
             self.history.append({"user": message, "assistant": clean})
 
             if len(self.history) > self._max_history * 2:
-                self.history = self.history[-self._max_history:]
+                self.history = self.history[-self._max_history :]
 
         # Auto-detect code in response if not already in code execution mode
         if not self._current_stats.has_code_execution and self.code_execution_enabled:
             try:
                 from code_executor import CodeDetector
-                has_code, language, code_content = CodeDetector.detect_code_in_response(full_response)
-                if has_code and language in ['python', 'py', 'javascript', 'js', '']:
+
+                has_code, language, code_content = CodeDetector.detect_code_in_response(
+                    full_response
+                )
+                if has_code and language in ["python", "py", "javascript", "js", ""]:
                     # Notify that code was detected and can be executed
-                    self.notify(Event('code_detected', {
-                        'language': language,
-                        'code': code_content,
-                        'full_response': full_response
-                    }))
+                    self.notify(
+                        Event(
+                            "code_detected",
+                            {
+                                "language": language,
+                                "code": code_content,
+                                "full_response": full_response,
+                            },
+                        )
+                    )
             except ImportError:
                 pass
 
         # Notify generation complete
-        self.notify(Event('generation_complete', {
-            'tokens': self._current_stats.tokens_generated,
-            'has_code': self._current_stats.has_code_execution,
-            'rag_results': self._current_stats.rag_results_used
-        }))
+        self.notify(
+            Event(
+                "generation_complete",
+                {
+                    "tokens": self._current_stats.tokens_generated,
+                    "has_code": self._current_stats.has_code_execution,
+                    "rag_results": self._current_stats.rag_results_used,
+                },
+            )
+        )
 
     def execute_code_generation(self, message: str) -> Iterator[str]:
         """
@@ -404,11 +429,9 @@ Answer based on context. If not found, say so."""
             Generated tokens and execution results
         """
         try:
-            from code_executor import (
-                EnhancedSandboxedCodeExecutor,
-                CodeDetector,
-                ResourceLimits
-            )
+            from code_executor import (CodeDetector,
+                                       EnhancedSandboxedCodeExecutor,
+                                       ResourceLimits)
         except ImportError:
             yield "Error: Code execution module not available."
             return
@@ -427,7 +450,7 @@ Answer based on context. If not found, say so."""
                 temperature=self._config.TEMPERATURE,
                 top_p=self._config.TOP_P,
                 repeat_penalty=self._config.REPEAT_PENALTY,
-                stream=True
+                stream=True,
             ):
                 token = chunk["choices"][0]["text"]
                 full_response += token
@@ -448,7 +471,7 @@ Answer based on context. If not found, say so."""
         resource_limits = ResourceLimits(
             max_cpu_time=self._config.CODE_EXECUTION_TIMEOUT,
             max_memory_mb=self._config.CODE_EXECUTION_MAX_MEMORY_MB,
-            allow_network=False
+            allow_network=False,
         )
 
         executor = EnhancedSandboxedCodeExecutor(resource_limits)
@@ -465,21 +488,28 @@ Answer based on context. If not found, say so."""
 
         # Notify about files ready for download
         if executor.get_downloadable_files():
-            self.notify(Event('code_execution_files_ready', {
-                'files': [f.__dict__ for f in executor.get_downloadable_files()],
-                'executor': executor
-            }))
+            self.notify(
+                Event(
+                    "code_execution_files_ready",
+                    {
+                        "files": [
+                            f.__dict__ for f in executor.get_downloadable_files()
+                        ],
+                        "executor": executor,
+                    },
+                )
+            )
 
         # Store in history
         if full_response.strip():
             clean = full_response.strip()
             self.history.append({"user": message, "assistant": clean})
             if len(self.history) > self._max_history * 2:
-                self.history = self.history[-self._max_history:]
+                self.history = self.history[-self._max_history :]
 
     def _extract_code_blocks(self, text: str) -> list:
         """Extract Python code blocks from text."""
-        pattern = r'```python\n(.*?)\n```'
+        pattern = r"```python\n(.*?)\n```"
         matches = re.findall(pattern, text, re.DOTALL)
         return matches
 
@@ -513,7 +543,7 @@ Answer based on context. If not found, say so."""
         """Clear conversation history."""
         self.history = []
         print("[LLM] History cleared")
-        self.notify(Event('history_cleared', {}))
+        self.notify(Event("history_cleared", {}))
 
     def get_stats(self) -> GenerationStats:
         """Get statistics from the last generation."""
@@ -524,9 +554,14 @@ Answer based on context. If not found, say so."""
         self.history = []
         self.error = None
         self._current_stats = GenerationStats()
-        self.notify(Event('engine_reset', {}))
+        self.notify(Event("engine_reset", {}))
 
-    def switch_model(self, model_path: str, model_id: str, on_progress: Optional[Callable[[str], None]] = None) -> bool:
+    def switch_model(
+        self,
+        model_path: str,
+        model_id: str,
+        on_progress: Optional[Callable[[str], None]] = None,
+    ) -> bool:
         """
         Switch to a different model.
 
@@ -547,7 +582,7 @@ Answer based on context. If not found, say so."""
 
     def get_current_model_id(self) -> str:
         """Get the current model ID."""
-        return getattr(self._config, 'model_id', 'unknown')
+        return getattr(self._config, "model_id", "unknown")
 
 
 # Global convenience instance

@@ -5,8 +5,8 @@ This module provides utilities to handle Windows-specific issues
 when running applications built with PyInstaller.
 """
 
-import sys
 import platform
+import sys
 
 
 def force_window_focus(window):
@@ -24,16 +24,16 @@ def force_window_focus(window):
     if platform.system() == "Windows":
         try:
             # Force window to top
-            window.attributes('-topmost', True)
+            window.attributes("-topmost", True)
             window.update()
-            window.attributes('-topmost', False)
+            window.attributes("-topmost", False)
 
             # Lift window to top of stacking order
             window.lift()
             window.focus_force()
 
             # Make window visible and ensure it's rendered
-            window.wm_state('normal')
+            window.wm_state("normal")
             window.update_idletasks()
 
         except Exception as e:
@@ -42,7 +42,7 @@ def force_window_focus(window):
 
 def is_frozen():
     """Check if running as PyInstaller frozen executable."""
-    return hasattr(sys, '_MEIPASS')
+    return hasattr(sys, "_MEIPASS")
 
 
 def get_executable_dir():
@@ -51,4 +51,5 @@ def get_executable_dir():
         return sys._MEIPASS
     else:
         import os
+
         return os.path.dirname(os.path.abspath(__file__))

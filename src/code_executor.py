@@ -8,27 +8,28 @@ Provides isolated subprocess execution with:
 - Real-time monitoring
 """
 
-import os
-import sys
-import subprocess
-import tempfile
-import shutil
-import time
-import re
-import json
-import signal
-import resource
-from dataclasses import dataclass, field
-from typing import List, Tuple, Optional, Dict, Any
-from pathlib import Path
-from datetime import datetime
-import threading
 import hashlib
+import json
+import os
+import re
+import resource
+import shutil
+import signal
+import subprocess
+import sys
+import tempfile
+import threading
+import time
+from dataclasses import dataclass, field
+from datetime import datetime
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Tuple
 
 
 @dataclass
 class ResourceLimits:
     """Resource limits for code execution."""
+
     max_cpu_time: int = 30  # seconds
     max_memory_mb: int = 512  # MB
     max_file_size_mb: int = 100  # MB
@@ -41,6 +42,7 @@ class ResourceLimits:
 @dataclass
 class ExecutionResult:
     """Result of code execution."""
+
     success: bool
     output: str
     error: str = ""
@@ -55,6 +57,7 @@ class ExecutionResult:
 @dataclass
 class DownloadableFile:
     """Represents a file that can be downloaded."""
+
     filename: str
     filepath: str
     size: int
@@ -67,27 +70,27 @@ class CodeDetector:
     """Detects when user requests code execution based on patterns."""
 
     CODE_PATTERNS = [
-        r'\bcreate\s+(a\s+)?(pdf|word|excel|powerpoint|document|spreadsheet|presentation)',
-        r'\bgenerate\s+(a\s+)?(pdf|word|excel|powerpoint|docx|xlsx|pptx)',
-        r'\bmake\s+(a\s+)?(pdf|word|excel|powerpoint|animation|plot|chart|graph)',
-        r'\bbuild\s+(a\s+)?(report|chart|graph|dashboard|image|plot)',
-        r'\banalyze\s+(data|csv|excel|spreadsheet)',
-        r'\bprocess\s+(data|csv|excel)',
-        r'\bcalculate\s+',
-        r'\bcompute\s+',
-        r'\bstatistics?\b',
-        r'\bplot\s+',
-        r'\bvisuali[sz]e',
-        r'\bexport\s+to',
-        r'\bsave\s+as',
-        r'\bconvert\s+to',
-        r'\brun\s+(python\s+)?code',
-        r'\bexecute\s+(python\s+)?code',
-        r'\bwrite\s+(python\s+)?code',
-        r'\bcan\s+you\s+(run|execute|write|create)\s+',
-        r'\bhelp\s+me\s+(run|execute|write|create)\s+',
-        r'\b(manin|matplotlib|seaborn|plotly|numpy|pandas)\b',
-        r'\banimation\b',
+        r"\bcreate\s+(a\s+)?(pdf|word|excel|powerpoint|document|spreadsheet|presentation)",
+        r"\bgenerate\s+(a\s+)?(pdf|word|excel|powerpoint|docx|xlsx|pptx)",
+        r"\bmake\s+(a\s+)?(pdf|word|excel|powerpoint|animation|plot|chart|graph)",
+        r"\bbuild\s+(a\s+)?(report|chart|graph|dashboard|image|plot)",
+        r"\banalyze\s+(data|csv|excel|spreadsheet)",
+        r"\bprocess\s+(data|csv|excel)",
+        r"\bcalculate\s+",
+        r"\bcompute\s+",
+        r"\bstatistics?\b",
+        r"\bplot\s+",
+        r"\bvisuali[sz]e",
+        r"\bexport\s+to",
+        r"\bsave\s+as",
+        r"\bconvert\s+to",
+        r"\brun\s+(python\s+)?code",
+        r"\bexecute\s+(python\s+)?code",
+        r"\bwrite\s+(python\s+)?code",
+        r"\bcan\s+you\s+(run|execute|write|create)\s+",
+        r"\bhelp\s+me\s+(run|execute|write|create)\s+",
+        r"\b(manin|matplotlib|seaborn|plotly|numpy|pandas)\b",
+        r"\banimation\b",
     ]
 
     @classmethod
@@ -106,26 +109,44 @@ class CodeDetector:
         Returns: (has_code, language, code_content)
         """
         # Check for markdown code blocks with language specifiers
-        code_block_pattern = r'```(\w*)\n(.*?)\n```'
+        code_block_pattern = r"```(\w*)\n(.*?)\n```"
         matches = re.findall(code_block_pattern, response, re.DOTALL)
 
         if matches:
             # Prioritize executable languages
-            executable_languages = ['python', 'py', 'javascript', 'js', 'typescript', 'ts', 'ruby', 'php', 'perl', 'bash', 'sh']
+            executable_languages = [
+                "python",
+                "py",
+                "javascript",
+                "js",
+                "typescript",
+                "ts",
+                "ruby",
+                "php",
+                "perl",
+                "bash",
+                "sh",
+            ]
 
             for lang, code in matches:
                 lang_lower = lang.lower().strip()
-                if lang_lower in executable_languages or lang_lower == '':
-                    return True, lang if lang else 'python', code.strip()
+                if lang_lower in executable_languages or lang_lower == "":
+                    return True, lang if lang else "python", code.strip()
 
             # If no executable language found, return the first code block
-            return True, matches[0][0] if matches[0][0] else 'text', matches[0][1].strip()
+            return (
+                True,
+                matches[0][0] if matches[0][0] else "text",
+                matches[0][1].strip(),
+            )
 
         # Check for inline code indicators
-        if re.search(r'\b(import\s+|from\s+\w+\s+import|def\s+\w+\s*\(|class\s+\w+)', response):
-            return True, 'python', response
+        if re.search(
+            r"\b(import\s+|from\s+\w+\s+import|def\s+\w+\s*\(|class\s+\w+)", response
+        ):
+            return True, "python", response
 
-        return False, '', ''
+        return False, "", ""
 
 
 class ResourceMonitor:
@@ -145,9 +166,10 @@ class ResourceMonitor:
         """Check if psutil is available and has required attributes."""
         try:
             import psutil
+
             # Test if Process has io_counters
             test_process = psutil.Process()
-            has_io_counters = hasattr(test_process, 'io_counters')
+            has_io_counters = hasattr(test_process, "io_counters")
             return has_io_counters
         except (ImportError, Exception):
             return False
@@ -167,14 +189,15 @@ class ResourceMonitor:
         if self._thread and self._psutil_available:
             self._thread.join(timeout=2)
         return {
-            'peak_memory_mb': self._peak_memory_mb,
-            'cpu_time': self._cpu_time,
-            'disk_write_mb': self._disk_write_mb
+            "peak_memory_mb": self._peak_memory_mb,
+            "cpu_time": self._cpu_time,
+            "disk_write_mb": self._disk_write_mb,
         }
 
     def _monitor_loop(self) -> None:
         """Monitor resource usage."""
         import psutil
+
         try:
             process = psutil.Process(self.pid)
             initial_io = process.io_counters()
@@ -192,8 +215,8 @@ class ResourceMonitor:
 
                     # Disk write
                     io_counters = process.io_counters()
-                    if hasattr(io_counters, 'write_bytes'):
-                        disk_write = (io_counters.write_bytes - initial_io.write_bytes)
+                    if hasattr(io_counters, "write_bytes"):
+                        disk_write = io_counters.write_bytes - initial_io.write_bytes
                         self._disk_write_mb = disk_write / (1024 * 1024)
 
                 except (psutil.NoSuchProcess, psutil.AccessDenied):
@@ -212,7 +235,7 @@ class NetworkIsolator:
     @staticmethod
     def create_unshare_script() -> str:
         """Create a script that uses unshare to isolate network."""
-        return f'''#!/bin/bash
+        return f"""#!/bin/bash
 # Network isolation using unshare (Linux)
 if command -v unshare &> /dev/null; then
     exec unshare -n -r --mount-proc "$@"
@@ -220,12 +243,12 @@ else
     # Fallback: just run without isolation
     exec "$@"
 fi
-'''
+"""
 
     @staticmethod
     def is_available() -> bool:
         """Check if network isolation is available."""
-        return sys.platform == 'linux' and os.path.exists('/usr/bin/unshare')
+        return sys.platform == "linux" and os.path.exists("/usr/bin/unshare")
 
 
 class EnhancedSandboxedCodeExecutor:
@@ -242,47 +265,91 @@ class EnhancedSandboxedCodeExecutor:
     """
 
     BLOCKED_MODULES = {
-        'os', 'sys', 'subprocess', 'multiprocessing', 'threading',
-        'socket', 'urllib', 'requests', 'http', 'ftplib', 'telnetlib',
-        'shutil', 'pathlib', 'tempfile', 'importlib', 'pkgutil',
-        '__import__', 'eval', 'exec', 'compile',
+        "os",
+        "sys",
+        "subprocess",
+        "multiprocessing",
+        "threading",
+        "socket",
+        "urllib",
+        "requests",
+        "http",
+        "ftplib",
+        "telnetlib",
+        "shutil",
+        "pathlib",
+        "tempfile",
+        "importlib",
+        "pkgutil",
+        "__import__",
+        "eval",
+        "exec",
+        "compile",
     }
 
     ALLOWED_MODULES = {
         # Standard library
-        'json', 'csv', 'math', 'statistics', 'datetime', 're',
-        'string', 'random', 'collections', 'itertools', 'decimal',
-        'fractions', 'typing', 'dataclasses', 'enum', 'io',
-        'abc', 'contextlib', 'functools', 'hashlib', 'base64',
-
+        "json",
+        "csv",
+        "math",
+        "statistics",
+        "datetime",
+        "re",
+        "string",
+        "random",
+        "collections",
+        "itertools",
+        "decimal",
+        "fractions",
+        "typing",
+        "dataclasses",
+        "enum",
+        "io",
+        "abc",
+        "contextlib",
+        "functools",
+        "hashlib",
+        "base64",
         # Document creation
-        'docx', 'pptx', 'openpyxl', 'reportlab', 'reportlab.lib',
-
+        "docx",
+        "pptx",
+        "openpyxl",
+        "reportlab",
+        "reportlab.lib",
         # Data analysis
-        'pandas', 'numpy', 'matplotlib', 'matplotlib.pyplot', 'seaborn',
-
+        "pandas",
+        "numpy",
+        "matplotlib",
+        "matplotlib.pyplot",
+        "seaborn",
         # Image processing
-        'PIL', 'pillow', 'PIL.Image', 'cv2', 'cv2',
-
+        "PIL",
+        "pillow",
+        "PIL.Image",
+        "cv2",
+        "cv2",
         # File formats
-        'xlsxwriter', 'pypdf2', 'pypdf', 'pdfplumber',
+        "xlsxwriter",
+        "pypdf2",
+        "pypdf",
+        "pdfplumber",
     }
 
     MIME_TYPES = {
-        '.pdf': 'application/pdf',
-        '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-        '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-        '.pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
-        '.txt': 'text/plain',
-        '.csv': 'text/csv',
-        '.json': 'application/json',
-        '.png': 'image/png',
-        '.jpg': 'image/jpeg',
-        '.jpeg': 'image/jpeg',
-        '.gif': 'image/gif',
-        '.svg': 'image/svg+xml',
-        '.html': 'text/html',
-        '.md': 'text/markdown',
+        ".pdf": "application/pdf",
+        ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        ".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        ".txt": "text/plain",
+        ".csv": "text/csv",
+        ".json": "application/json",
+        ".png": "image/png",
+        ".jpg": "image/jpeg",
+        ".jpeg": "image/jpeg",
+        ".gif": "image/gif",
+        ".svg": "image/svg+xml",
+        ".html": "text/html",
+        ".md": "text/markdown",
     }
 
     def __init__(self, resource_limits: Optional[ResourceLimits] = None):
@@ -322,13 +389,13 @@ class EnhancedSandboxedCodeExecutor:
 
             # Write script
             script_path = os.path.join(self.temp_dir, "execute.py")
-            with open(script_path, 'w', encoding='utf-8') as f:
+            with open(script_path, "w", encoding="utf-8") as f:
                 f.write(exec_script)
 
             # Debug: Check if script was written correctly
-            if os.environ.get('DEBUG_SANDBOX'):
+            if os.environ.get("DEBUG_SANDBOX"):
                 print(f"[DEBUG] Script written to: {script_path}")
-                with open(script_path, 'r') as f:
+                with open(script_path, "r") as f:
                     lines = f.readlines()
                     print(f"[DEBUG] Script has {len(lines)} lines")
                     # Show lines around os.chdir
@@ -364,24 +431,24 @@ class EnhancedSandboxedCodeExecutor:
     def _validate_code(self, code: str) -> Optional[str]:
         """Validate code for security issues."""
         # Check for blocked module imports
-        import_pattern = r'(?:from\s+(\S+)\s+import|import\s+(\S+))'
+        import_pattern = r"(?:from\s+(\S+)\s+import|import\s+(\S+))"
 
         for match in re.finditer(import_pattern, code):
             module = match.group(1) or match.group(2)
-            base_module = module.split('.')[0]
+            base_module = module.split(".")[0]
 
             if base_module in self.BLOCKED_MODULES:
                 return f"Blocked module: {module}. Module '{base_module}' is not allowed for security reasons."
 
         # Check for dangerous patterns
         dangerous_patterns = [
-            (r'\b__import__\s*\(', "__import__() is not allowed"),
-            (r'\beval\s*\(', "eval() is not allowed for security reasons"),
-            (r'\bexec\s*\(', "exec() is not allowed for security reasons"),
-            (r'\bcompile\s*\(', "compile() is not allowed for security reasons"),
+            (r"\b__import__\s*\(", "__import__() is not allowed"),
+            (r"\beval\s*\(", "eval() is not allowed for security reasons"),
+            (r"\bexec\s*\(", "exec() is not allowed for security reasons"),
+            (r"\bcompile\s*\(", "compile() is not allowed for security reasons"),
             (r'\bopen\s*\(["\'].*\.py', "Opening .py files is not allowed"),
-            (r'\bmmap\s*\(', "mmap() is not allowed"),
-            (r'\bmemoryview\s*\(', "memoryview() is not allowed"),
+            (r"\bmmap\s*\(", "mmap() is not allowed"),
+            (r"\bmemoryview\s*\(", "memoryview() is not allowed"),
         ]
 
         for pattern, msg in dangerous_patterns:
@@ -400,7 +467,7 @@ class EnhancedSandboxedCodeExecutor:
         max_file_size_mb = self.limits.max_file_size_mb
         allow_network = str(self.limits.allow_network).lower()
 
-        return f'''
+        return f"""
 import sys
 import io
 import traceback
@@ -502,7 +569,7 @@ signal.alarm({max_cpu_time})
 
 # Execute user code
 try:
-{self._indent_code(user_code, 4)}
+{self._indent_code(self._ensure_document_saves(user_code), 4)}
 except TimeoutError as e:
     print(f"ERROR: {{str(e)}}")
 except Exception as e:
@@ -529,26 +596,26 @@ result = {{
 }}
 print("\\n---EXECUTION_RESULT---")
 print(json.dumps(result))
-'''
+"""
 
     def _create_wrapper_script(self, script_path: str) -> str:
         """Create wrapper script for execution with resource limits."""
         wrapper_path = os.path.join(self.temp_dir, "wrapper.sh")
 
         # Try to use unshare for network isolation (Linux)
-        if sys.platform == 'linux' and os.path.exists('/usr/bin/unshare'):
-            wrapper_content = f'''#!/bin/bash
+        if sys.platform == "linux" and os.path.exists("/usr/bin/unshare"):
+            wrapper_content = f"""#!/bin/bash
 cd "{self.temp_dir}"
 exec unshare -n -r --mount-proc "{sys.executable}" "{script_path}"
-'''
+"""
         else:
             # Fallback wrapper
-            wrapper_content = f'''#!/bin/bash
+            wrapper_content = f"""#!/bin/bash
 cd "{self.temp_dir}"
 exec "{sys.executable}" "{script_path}"
-'''
+"""
 
-        with open(wrapper_path, 'w') as f:
+        with open(wrapper_path, "w") as f:
             f.write(wrapper_content)
         os.chmod(wrapper_path, 0o755)
 
@@ -591,22 +658,23 @@ exec "{sys.executable}" "{script_path}"
                     output="",
                     error=f"Execution timed out after {self.limits.max_cpu_time} seconds",
                     stderr=stderr,
-                    exit_code=-1
+                    exit_code=-1,
                 )
 
             # Parse results
-            if '---EXECUTION_RESULT---' in stdout:
-                parts = stdout.split('---EXECUTION_RESULT---')
+            if "---EXECUTION_RESULT---" in stdout:
+                parts = stdout.split("---EXECUTION_RESULT---")
                 output_before = parts[0]
                 try:
                     result_data = json.loads(parts[1].strip())
                     return ExecutionResult(
-                        success=result_data.get('success', True) and process.returncode == 0,
-                        output=output_before + result_data.get('stdout', ''),
-                        error=result_data.get('stderr', ''),
-                        stdout=result_data.get('stdout', ''),
-                        stderr=result_data.get('stderr', ''),
-                        exit_code=process.returncode
+                        success=result_data.get("success", True)
+                        and process.returncode == 0,
+                        output=output_before + result_data.get("stdout", ""),
+                        error=result_data.get("stderr", ""),
+                        stdout=result_data.get("stdout", ""),
+                        stderr=result_data.get("stderr", ""),
+                        exit_code=process.returncode,
                     )
                 except json.JSONDecodeError:
                     pass
@@ -617,7 +685,7 @@ exec "{sys.executable}" "{script_path}"
                 error=stderr,
                 stdout=stdout,
                 stderr=stderr,
-                exit_code=process.returncode
+                exit_code=process.returncode,
             )
 
         except Exception as e:
@@ -625,7 +693,7 @@ exec "{sys.executable}" "{script_path}"
                 success=False,
                 output="",
                 error=f"Subprocess error: {str(e)}",
-                exit_code=-1
+                exit_code=-1,
             )
 
     def _catalog_created_files(self) -> List[Dict[str, Any]]:
@@ -634,34 +702,38 @@ exec "{sys.executable}" "{script_path}"
         if self.temp_dir and os.path.exists(self.temp_dir):
             for item in os.listdir(self.temp_dir):
                 item_path = os.path.join(self.temp_dir, item)
-                if os.path.isfile(item_path) and not item.endswith(('.py', '.sh')):
+                if os.path.isfile(item_path) and not item.endswith((".py", ".sh")):
                     try:
                         stat_info = os.stat(item_path)
                         ext = os.path.splitext(item)[1].lower()
-                        mime_type = self.MIME_TYPES.get(ext, 'application/octet-stream')
+                        mime_type = self.MIME_TYPES.get(ext, "application/octet-stream")
 
                         # Calculate file hash
                         file_hash = self._calculate_file_hash(item_path)
 
                         file_info = {
-                            'filename': item,
-                            'filepath': item_path,
-                            'size': stat_info.st_size,
-                            'mime_type': mime_type,
-                            'created_at': datetime.fromtimestamp(stat_info.st_ctime).isoformat(),
-                            'hash': file_hash
+                            "filename": item,
+                            "filepath": item_path,
+                            "size": stat_info.st_size,
+                            "mime_type": mime_type,
+                            "created_at": datetime.fromtimestamp(
+                                stat_info.st_ctime
+                            ).isoformat(),
+                            "hash": file_hash,
                         }
                         files.append(file_info)
 
                         # Add to downloadable files list
-                        self._downloadable_files.append(DownloadableFile(
-                            filename=item,
-                            filepath=item_path,
-                            size=stat_info.st_size,
-                            mime_type=mime_type,
-                            created_at=datetime.fromtimestamp(stat_info.st_ctime),
-                            file_hash=file_hash
-                        ))
+                        self._downloadable_files.append(
+                            DownloadableFile(
+                                filename=item,
+                                filepath=item_path,
+                                size=stat_info.st_size,
+                                mime_type=mime_type,
+                                created_at=datetime.fromtimestamp(stat_info.st_ctime),
+                                file_hash=file_hash,
+                            )
+                        )
                     except Exception as e:
                         print(f"Error cataloging file {{item}}: {{e}}")
         return files
@@ -704,7 +776,7 @@ exec "{sys.executable}" "{script_path}"
         for downloadable in self._downloadable_files:
             if downloadable.filename == filename:
                 try:
-                    with open(downloadable.filepath, 'rb') as f:
+                    with open(downloadable.filepath, "rb") as f:
                         return f.read()
                 except Exception as e:
                     print(f"Error reading file: {e}")
@@ -717,7 +789,7 @@ exec "{sys.executable}" "{script_path}"
             output="",
             error=error,
             execution_time=time.time() - start_time,
-            exit_code=-1
+            exit_code=-1,
         )
 
     def _cleanup(self) -> None:
@@ -743,22 +815,79 @@ exec "{sys.executable}" "{script_path}"
             self.temp_dir = None
         self._downloadable_files.clear()
 
+    def _ensure_document_saves(self, code: str) -> str:
+        """
+        Ensure document objects are saved before execution ends.
+        Auto-adds .save() calls for Document, Workbook, etc.
+        """
+        import re
+
+        lines = code.split("\n")
+        modified_lines = []
+
+        # Track document objects created
+        doc_objects = {}
+
+        for i, line in enumerate(lines):
+            modified_lines.append(line)
+
+            # Detect variable assignments for document objects
+            # Pattern: var = Document(), var = Workbook(), etc.
+            for doc_type, save_method in [
+                (r'(\w+)\s*=\s*Document\(\)', r'\1.save("output.docx")'),
+                (r'(\w+)\s*=\s*Workbook\(\)', r'\1.save("output.xlsx")'),
+                (r'(\w+)\s*=\s*Presentation\(\)', r'\1.save("output.pptx")'),
+                (r'(\w+)\s*=\s*PdfPages\(\)', r'\1.savefig("output.pdf")'),
+            ]:
+                match = re.search(doc_type, line)
+                if match:
+                    var_name = match.group(1)
+                    doc_objects[var_name] = (doc_type, save_method)
+
+        # If document objects were found but no .save() calls, add them at the end
+        if doc_objects:
+            # Check if any save calls exist in the code
+            has_save = any('.save(' in line for line in lines)
+
+            if not has_save:
+                # Add automatic saves for each document object
+                for var_name, (doc_type, save_method) in doc_objects.items():
+                    # Generate filename based on document type
+                    if 'Document' in doc_type:
+                        filename = f'"{var_name}_document.docx"'
+                        modified_lines.append(f"if '{var_name}' in locals():")
+                        modified_lines.append(f"    {var_name}.save({filename})")
+                    elif 'Workbook' in doc_type:
+                        filename = f'"{var_name}_workbook.xlsx"'
+                        modified_lines.append(f"if '{var_name}' in locals():")
+                        modified_lines.append(f"    {var_name}.save({filename})")
+                    elif 'Presentation' in doc_type:
+                        filename = f'"{var_name}_presentation.pptx"'
+                        modified_lines.append(f"if '{var_name}' in locals():")
+                        modified_lines.append(f"    {var_name}.save({filename})")
+                    elif 'PdfPages' in doc_type:
+                        filename = f'"{var_name}_plot.pdf"'
+                        modified_lines.append(f"if '{var_name}' in locals():")
+                        modified_lines.append(f"    {var_name}.save_figure({filename})")
+
+        return "\n".join(modified_lines)
+
     def _indent_code(self, code: str, spaces: int) -> str:
         """Indent code block for embedding in script."""
-        indent = ' ' * spaces
-        lines = code.split('\n')
-        return '\n'.join(indent + line if line.strip() else line for line in lines)
+        indent = " " * spaces
+        lines = code.split("\n")
+        return "\n".join(indent + line if line.strip() else line for line in lines)
 
     def _log_execution(self, code: str, result: ExecutionResult) -> None:
         """Log execution for audit trail."""
         log_entry = {
-            'timestamp': datetime.now().isoformat(),
-            'code_hash': hashlib.sha256(code.encode()).hexdigest()[:16],
-            'success': result.success,
-            'execution_time': result.execution_time,
-            'exit_code': result.exit_code,
-            'files_created': len(result.files_created),
-            'resources_used': result.resources_used
+            "timestamp": datetime.now().isoformat(),
+            "code_hash": hashlib.sha256(code.encode()).hexdigest()[:16],
+            "success": result.success,
+            "execution_time": result.execution_time,
+            "exit_code": result.exit_code,
+            "files_created": len(result.files_created),
+            "resources_used": result.resources_used,
         }
         self._execution_log.append(log_entry)
 
@@ -780,17 +909,25 @@ def format_code_output(result: ExecutionResult) -> str:
         if result.files_created:
             lines.append("📁 Files created:")
             for file_info in result.files_created:
-                size_mb = file_info['size'] / (1024 * 1024)
-                size_str = f"{size_mb:.2f} MB" if size_mb > 1 else f"{file_info['size']} bytes"
+                size_mb = file_info["size"] / (1024 * 1024)
+                size_str = (
+                    f"{size_mb:.2f} MB" if size_mb > 1 else f"{file_info['size']} bytes"
+                )
                 lines.append(f"  • {file_info['filename']} ({size_str})")
                 lines.append(f"    Type: {file_info['mime_type']}")
                 lines.append(f"    Hash: {file_info['hash'][:16]}...")
 
         if result.resources_used:
             lines.append("⚡ Resources used:")
-            lines.append(f"  • Peak memory: {result.resources_used.get('peak_memory_mb', 0):.1f} MB")
-            lines.append(f"  • CPU time: {result.resources_used.get('cpu_time', 0):.2f}s")
-            lines.append(f"  • Disk write: {result.resources_used.get('disk_write_mb', 0):.1f} MB")
+            lines.append(
+                f"  • Peak memory: {result.resources_used.get('peak_memory_mb', 0):.1f} MB"
+            )
+            lines.append(
+                f"  • CPU time: {result.resources_used.get('cpu_time', 0):.2f}s"
+            )
+            lines.append(
+                f"  • Disk write: {result.resources_used.get('disk_write_mb', 0):.1f} MB"
+            )
 
         lines.append(f"\n⏱️ Execution time: {result.execution_time:.2f}s")
     else:
@@ -804,7 +941,9 @@ def format_code_output(result: ExecutionResult) -> str:
 
 
 # Convenience function
-def execute_code(code: str, resource_limits: Optional[ResourceLimits] = None) -> ExecutionResult:
+def execute_code(
+    code: str, resource_limits: Optional[ResourceLimits] = None
+) -> ExecutionResult:
     """
     Execute code with enhanced sandbox.
 

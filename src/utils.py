@@ -5,7 +5,7 @@ from functools import lru_cache
 
 @lru_cache(maxsize=32)
 def get_resource_path(relative_path: str) -> str:
-    if hasattr(sys, '_MEIPASS'):
+    if hasattr(sys, "_MEIPASS"):
         return os.path.join(sys._MEIPASS, relative_path)
     # Get the directory containing this script (src/ directory)
     script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -22,7 +22,7 @@ def get_writable_path(filename: str) -> str:
     global _APP_DATA_DIR
 
     if _APP_DATA_DIR is None:
-        if hasattr(sys, '_MEIPASS'):
+        if hasattr(sys, "_MEIPASS"):
             _APP_DATA_DIR = os.path.join(os.path.expanduser("~"), ".localchat")
         else:
             _APP_DATA_DIR = os.path.join(os.path.dirname(__file__), "..", ".localchat")
@@ -39,6 +39,7 @@ def log_message(prefix: str, message: str, callback=None):
 
 def get_file_hash(filepath: str) -> str:
     import hashlib
+
     stat = os.stat(filepath)
     content = f"{filepath}:{stat.st_size}:{stat.st_mtime}"
     return hashlib.md5(content.encode()).hexdigest()[:16]

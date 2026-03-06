@@ -4,9 +4,9 @@ Simple CLI interface for Local LLM UI.
 This version works with a mock/simulation mode when models aren't available.
 """
 
-import sys
 import os
 import re
+import sys
 from pathlib import Path
 
 # Add src to path
@@ -22,11 +22,13 @@ class MockLLM:
     def generate(self, prompt, max_tokens=512, stop=None, temperature=0.1, top_p=0.85):
         """Generate a mock response."""
         # Extract user message from prompt
-        user_match = re.search(r'<\|im_start\|user>\n(.+?)<\|im_end\|>', prompt, re.DOTALL)
+        user_match = re.search(
+            r"<\|im_start\|user>\n(.+?)<\|im_end\|>", prompt, re.DOTALL
+        )
         user_message = user_match.group(1) if user_match else "your question"
 
         # Check if there's RAG context
-        rag_match = re.search(r'=== CONTEXT ===\n(.+?)\n=== END ===', prompt, re.DOTALL)
+        rag_match = re.search(r"=== CONTEXT ===\n(.+?)\n=== END ===", prompt, re.DOTALL)
         has_rag = rag_match is not None
 
         if has_rag:
@@ -63,7 +65,7 @@ Key points:
 • CLI interface is functional
 • Model loading can be enabled when ready
 
-Would you like me to explain how to set up the full model, or is there something else I can help with?"""
+Would you like me to explain how to set up the full model, or is there something else I can help with?""",
             ]
             response = responses[hash(user_message) % len(responses)]
 
@@ -73,6 +75,7 @@ Would you like me to explain how to set up the full model, or is there something
             yield word + (" " if i < len(words) - 1 else "")
             if i % 5 == 0:  # Simulate streaming
                 import time
+
                 time.sleep(0.02)
 
 
@@ -110,6 +113,7 @@ class SimpleCLI:
             try:
                 print("⏳ Loading models...")
                 from llm import LLMEngine
+
                 engine = LLMEngine.get_instance()
                 if engine.load():
                     self.llm = engine
@@ -127,6 +131,7 @@ class SimpleCLI:
         if not self.use_mock:
             try:
                 from rag import RAG
+
                 self.rag = RAG()
                 self.rag.initialize(lambda msg: print(f"   {msg}"))
             except:
@@ -149,7 +154,7 @@ class SimpleCLI:
     def _format_response(self, text):
         """Format response for display."""
         # Clean up any extra whitespace
-        text = re.sub(r'\s+', ' ', text)
+        text = re.sub(r"\s+", " ", text)
         return text.strip()
 
     def _show_help(self):
@@ -174,7 +179,7 @@ class SimpleCLI:
             print("  ⚠️  Running in SIMULATION mode")
             print("  Responses are generated for testing purposes")
             print("  Download models to enable full AI functionality")
-        if self.rag and hasattr(self.rag, 'documents') and self.rag.documents:
+        if self.rag and hasattr(self.rag, "documents") and self.rag.documents:
             print(f"  ✓ RAG enabled with {len(self.rag.documents)} document chunks")
         else:
             print("  ℹ️  No documents loaded (add documents to data/ folder)")
@@ -188,8 +193,10 @@ class SimpleCLI:
         print("=" * 60)
         print(f"  Messages exchanged: {len(self.history)}")
         print(f"  User messages: {sum(1 for h in self.history if h['role'] == 'user')}")
-        print(f"  Assistant responses: {sum(1 for h in self.history if h['role'] == 'assistant')}")
-        if self.rag and hasattr(self.rag, 'documents'):
+        print(
+            f"  Assistant responses: {sum(1 for h in self.history if h['role'] == 'assistant')}"
+        )
+        if self.rag and hasattr(self.rag, "documents"):
             print(f"  Document chunks available: {len(self.rag.documents)}")
         print()
 
@@ -200,10 +207,10 @@ class SimpleCLI:
         print("LOADED DOCUMENTS")
         print("=" * 60)
 
-        if self.rag and hasattr(self.rag, 'documents') and self.rag.documents:
+        if self.rag and hasattr(self.rag, "documents") and self.rag.documents:
             sources = {}
             for doc in self.rag.documents:
-                source = doc.get('source', 'unknown')
+                source = doc.get("source", "unknown")
                 sources[source] = sources.get(source, 0) + 1
 
             if sources:
@@ -218,20 +225,20 @@ class SimpleCLI:
 
     def process_command(self, user_input):
         """Process special commands."""
-        if user_input == '/quit':
+        if user_input == "/quit":
             return False, None
-        elif user_input == '/help':
+        elif user_input == "/help":
             self._show_help()
             return True, None
-        elif user_input == '/clear':
+        elif user_input == "/clear":
             self.history = []
             print("✓ Conversation history cleared")
             print()
             return True, None
-        elif user_input == '/files':
+        elif user_input == "/files":
             self._show_files()
             return True, None
-        elif user_input == '/stats':
+        elif user_input == "/stats":
             self._show_stats()
             return True, None
         else:
@@ -260,30 +267,40 @@ class SimpleCLI:
                     continue
 
                 # Generate response
-                print("\nAssistant: ", end='', flush=True)
+                print("\nAssistant: ", end="", flush=True)
 
                 response = ""
                 try:
                     for token in self.llm.generate(message):
-                        print(token, end='', flush=True)
+                        print(token, end="", flush=True)
                         response += token
                     print()  # New line after response
 
                     # Check if response contains error message
                     if "exceed context window" in response or "Error:" in response:
-                        print("\n⚠️  Note: The document content is too large for the model's context window.")
-                        print("   Try asking a more specific question or reduce the document size.")
-                        print("   You can also split large documents into smaller files.")
+                        print(
+                            "\n⚠️  Note: The document content is too large for the model's context window."
+                        )
+                        print(
+                            "   Try asking a more specific question or reduce the document size."
+                        )
+                        print(
+                            "   You can also split large documents into smaller files."
+                        )
 
                 except Exception as e:
                     print(f"\nError: {e}")
                     if "context" in str(e).lower() and "window" in str(e).lower():
-                        print("\n💡 Tip: This error occurs when documents are too large.")
-                        print("   Try asking about specific sections or use smaller documents.")
+                        print(
+                            "\n💡 Tip: This error occurs when documents are too large."
+                        )
+                        print(
+                            "   Try asking about specific sections or use smaller documents."
+                        )
 
                 # Add to history
-                self.history.append({'role': 'user', 'content': message})
-                self.history.append({'role': 'assistant', 'content': response})
+                self.history.append({"role": "user", "content": message})
+                self.history.append({"role": "assistant", "content": response})
 
                 print()
 

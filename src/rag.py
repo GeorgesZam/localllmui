@@ -1,35 +1,40 @@
-import os
+import hashlib
 import json
+import os
 import re
 import shutil
-import hashlib
+from typing import Callable, List, Optional, Tuple
+
 import numpy as np
-from typing import Optional, Callable, List, Tuple
 
 import config
-from utils import get_resource_path, get_writable_path, get_file_hash
 from ocr import OCRProcessor
+from utils import get_file_hash, get_resource_path, get_writable_path
 
 try:
     import PyPDF2
+
     HAS_PDF = True
 except ImportError:
     HAS_PDF = False
 
 try:
     import openpyxl
+
     HAS_EXCEL = True
 except ImportError:
     HAS_EXCEL = False
 
 try:
     from pptx import Presentation
+
     HAS_PPTX = True
 except ImportError:
     HAS_PPTX = False
 
 try:
     from docx import Document
+
     HAS_DOCX = True
 except ImportError:
     HAS_DOCX = False
@@ -60,6 +65,7 @@ class EmbeddingModel:
 
         try:
             from sentence_transformers import SentenceTransformer
+
             bundled_path = get_resource_path(config.EMBEDDING_MODEL_FOLDER)
 
             if os.path.exists(bundled_path):
@@ -69,14 +75,14 @@ class EmbeddingModel:
                 import signal
                 import threading
 
-                load_result = {'success': False, 'error': None}
+                load_result = {"success": False, "error": None}
 
                 def load_with_timeout():
                     try:
                         self._model = SentenceTransformer(bundled_path)
-                        load_result['success'] = True
+                        load_result["success"] = True
                     except Exception as e:
-                        load_result['error'] = str(e)
+                        load_result["error"] = str(e)
 
                 # Start loading in a thread
                 load_thread = threading.Thread(target=load_with_timeout, daemon=True)
@@ -89,7 +95,7 @@ class EmbeddingModel:
                     log("Loading timeout - model may be too large or corrupted")
                     return False
 
-                if not load_result['success']:
+                if not load_result["success"]:
                     log(f"Error loading model: {load_result['error']}")
                     return False
 
@@ -102,6 +108,7 @@ class EmbeddingModel:
         except Exception as e:
             log(f"Error: {e}")
             import traceback
+
             traceback.print_exc()
             return False
 
@@ -110,49 +117,112 @@ class EmbeddingModel:
             return np.array([])
 
         if is_query:
-            texts = [f"Represent this sentence for searching relevant passages: {t}" for t in texts]
+            texts = [
+                f"Represent this sentence for searching relevant passages: {t}"
+                for t in texts
+            ]
 
-        batch_size = getattr(config, 'BATCH_SIZE', 512)
+        batch_size = getattr(config, "BATCH_SIZE", 512)
         return self._model.encode(
             texts,
             normalize_embeddings=True,
             show_progress_bar=False,
-            batch_size=batch_size
+            batch_size=batch_size,
         )
 
     def unload(self):
         self._model = None
         self._loaded = False
         import gc
+
         gc.collect()
 
 
 class DocumentParser:
 
     SUPPORTED_EXTENSIONS = (
-        '.txt', '.md', '.pdf', '.xlsx', '.xls', '.pptx', '.ppt', '.csv',
-        '.docx', '.doc', '.py', '.js', '.ts', '.jsx', '.tsx', '.java',
-        '.c', '.cpp', '.h', '.hpp', '.cs', '.go', '.rs', '.rb', '.php',
-        '.json', '.xml', '.yaml', '.yml', '.html', '.htm', '.css',
-        '.png', '.jpg', '.jpeg', '.tiff', '.bmp',
+        ".txt",
+        ".md",
+        ".pdf",
+        ".xlsx",
+        ".xls",
+        ".pptx",
+        ".ppt",
+        ".csv",
+        ".docx",
+        ".doc",
+        ".py",
+        ".js",
+        ".ts",
+        ".jsx",
+        ".tsx",
+        ".java",
+        ".c",
+        ".cpp",
+        ".h",
+        ".hpp",
+        ".cs",
+        ".go",
+        ".rs",
+        ".rb",
+        ".php",
+        ".json",
+        ".xml",
+        ".yaml",
+        ".yml",
+        ".html",
+        ".htm",
+        ".css",
+        ".png",
+        ".jpg",
+        ".jpeg",
+        ".tiff",
+        ".bmp",
     )
 
     TEXT_EXTENSIONS = (
-        '.txt', '.md', '.py', '.js', '.ts', '.jsx', '.tsx', '.java',
-        '.c', '.cpp', '.h', '.hpp', '.cs', '.go', '.rs', '.rb', '.php',
-        '.json', '.xml', '.yaml', '.yml', '.html', '.htm', '.css', '.csv',
+        ".txt",
+        ".md",
+        ".py",
+        ".js",
+        ".ts",
+        ".jsx",
+        ".tsx",
+        ".java",
+        ".c",
+        ".cpp",
+        ".h",
+        ".hpp",
+        ".cs",
+        ".go",
+        ".rs",
+        ".rb",
+        ".php",
+        ".json",
+        ".xml",
+        ".yaml",
+        ".yml",
+        ".html",
+        ".htm",
+        ".css",
+        ".csv",
     )
 
     def __init__(self, ocr_processor: OCRProcessor):
         self.ocr = ocr_processor
         self._parsers = {
-            '.pdf': self._parse_pdf,
-            '.docx': self._parse_docx, '.doc': self._parse_docx,
-            '.xlsx': self._parse_excel, '.xls': self._parse_excel,
-            '.pptx': self._parse_pptx, '.ppt': self._parse_pptx,
-            '.png': self._parse_image, '.jpg': self._parse_image,
-            '.jpeg': self._parse_image, '.tiff': self._parse_image,
-            '.bmp': self._parse_image,
+            ".pdf": self._parse_pdf,
+            ".docx": self._parse_docx,
+            ".doc": self._parse_docx,
+            ".xlsx": self._parse_excel,
+            ".xls": self._parse_excel,
+            ".pptx": self._parse_pptx,
+            ".ppt": self._parse_pptx,
+            ".png": self._parse_image,
+            ".jpg": self._parse_image,
+            ".jpeg": self._parse_image,
+            ".tiff": self._parse_image,
+            ".bmp": self._parse_image,
         }
 
     def parse(self, file_path: str) -> str:
@@ -170,7 +240,7 @@ class DocumentParser:
             text_parts = []
             scanned_pages = []
 
-            with open(file_path, 'rb') as f:
+            with open(file_path, "rb") as f:
                 reader = PyPDF2.PdfReader(f)
                 total_pages = len(reader.pages)
 
@@ -179,7 +249,9 @@ class DocumentParser:
                         page_text = (page.extract_text() or "").strip()
 
                         if len(page_text) > 50:
-                            text_parts.append(f"=== Page {page_num + 1} ===\n{page_text}")
+                            text_parts.append(
+                                f"=== Page {page_num + 1} ===\n{page_text}"
+                            )
                         else:
                             scanned_pages.append(page_num + 1)
                     except Exception:
@@ -187,7 +259,12 @@ class DocumentParser:
 
             text = "\n\n".join(text_parts)
 
-            if not text.strip() and scanned_pages and self.ocr.available and self.ocr.pdf_support:
+            if (
+                not text.strip()
+                and scanned_pages
+                and self.ocr.available
+                and self.ocr.pdf_support
+            ):
                 text = self.ocr.ocr_pdf(file_path, dpi=200)
 
             return text.strip()
@@ -205,7 +282,9 @@ class DocumentParser:
 
             for table in doc.tables:
                 for row in table.rows:
-                    row_text = " | ".join(c.text.strip() for c in row.cells if c.text.strip())
+                    row_text = " | ".join(
+                        c.text.strip() for c in row.cells if c.text.strip()
+                    )
                     if row_text:
                         text_parts.append(row_text)
 
@@ -246,7 +325,9 @@ class DocumentParser:
             text_parts = []
 
             for i, slide in enumerate(prs.slides, 1):
-                slide_text = [s.text for s in slide.shapes if hasattr(s, "text") and s.text]
+                slide_text = [
+                    s.text for s in slide.shapes if hasattr(s, "text") and s.text
+                ]
                 if slide_text:
                     text_parts.append(f"=== Slide {i} ===\n" + "\n".join(slide_text))
 
@@ -261,9 +342,9 @@ class DocumentParser:
         return self.ocr.ocr_image(file_path)
 
     def _parse_text(self, file_path: str) -> str:
-        for encoding in ['utf-8', 'latin-1', 'cp1252']:
+        for encoding in ["utf-8", "latin-1", "cp1252"]:
             try:
-                with open(file_path, 'r', encoding=encoding) as f:
+                with open(file_path, "r", encoding=encoding) as f:
                     return f.read()
             except UnicodeDecodeError:
                 continue
@@ -357,7 +438,7 @@ class RAG:
             return False
 
         try:
-            with open(self.hash_file, 'r') as f:
+            with open(self.hash_file, "r") as f:
                 cached_hash = f.read().strip()
             return cached_hash == self._compute_docs_hash()
         except Exception:
@@ -382,7 +463,7 @@ class RAG:
             if self._embeddings is not None:
                 np.save(self.embeddings_file, self._embeddings)
 
-            with open(self.hash_file, 'w') as f:
+            with open(self.hash_file, "w") as f:
                 f.write(self._compute_docs_hash())
 
             log(f"Index saved: {len(self.documents)} chunks")
@@ -390,13 +471,13 @@ class RAG:
             log(f"Save error: {e}")
 
     def _split_text(self, text: str, chunk_size: int) -> List[str]:
-        overlap = getattr(config, 'RAG_CHUNK_OVERLAP', 50)
+        overlap = getattr(config, "RAG_CHUNK_OVERLAP", 50)
         text = text.strip()
 
         if len(text) < 50:
             return [text] if len(text) > 20 else []
 
-        sentences = re.split(r'(?<=[.!?])\s+', text)
+        sentences = re.split(r"(?<=[.!?])\s+", text)
         chunks, current_chunk, current_length = [], [], 0
 
         for sentence in sentences:
@@ -449,11 +530,9 @@ class RAG:
                     chunks = self._split_text(text, config.RAG_CHUNK_SIZE)
 
                     for i, chunk in enumerate(chunks):
-                        all_chunks.append({
-                            "source": filename,
-                            "chunk_id": i,
-                            "content": chunk
-                        })
+                        all_chunks.append(
+                            {"source": filename, "chunk_id": i, "content": chunk}
+                        )
 
                     log(f"✓ {filename}: {len(chunks)} chunks")
                 except Exception as e:
@@ -475,7 +554,13 @@ class RAG:
         self.documents = all_chunks
         self._save_index(log)
 
-    def search(self, query: str, top_k: int = None, max_context_chars: int = 1200, allowed_sources: List[str] = None) -> Tuple[str, List[dict]]:
+    def search(
+        self,
+        query: str,
+        top_k: int = None,
+        max_context_chars: int = 1200,
+        allowed_sources: List[str] = None,
+    ) -> Tuple[str, List[dict]]:
         """
         Search for relevant documents with context size limit.
 
@@ -496,7 +581,7 @@ class RAG:
             return "", []
 
         top_k = top_k or config.RAG_TOP_K
-        min_score = getattr(config, 'RAG_MIN_SCORE', 0.3)
+        min_score = getattr(config, "RAG_MIN_SCORE", 0.3)
         results = []
 
         # Filter documents by allowed sources if provided
@@ -511,15 +596,31 @@ class RAG:
         if self.embeddings is not None and self.embedding_model.is_loaded:
             # Create a mapping from original document indices to filtered ones
             original_to_filtered = {i: doc for i, doc in enumerate(self.documents)}
-            filtered_indices = [i for i, doc in enumerate(self.documents) if doc["source"] in allowed_set] if allowed_set is not None else list(range(len(self.documents)))
+            filtered_indices = (
+                [
+                    i
+                    for i, doc in enumerate(self.documents)
+                    if doc["source"] in allowed_set
+                ]
+                if allowed_set is not None
+                else list(range(len(self.documents)))
+            )
 
             # Get embeddings for filtered documents only
-            filtered_embeddings = self.embeddings[filtered_indices] if allowed_set is not None else self.embeddings
-            filtered_docs = [self.documents[i] for i in filtered_indices] if allowed_set is not None else self.documents
+            filtered_embeddings = (
+                self.embeddings[filtered_indices]
+                if allowed_set is not None
+                else self.embeddings
+            )
+            filtered_docs = (
+                [self.documents[i] for i in filtered_indices]
+                if allowed_set is not None
+                else self.documents
+            )
 
             query_emb = self.embedding_model.encode([query], is_query=True)[0]
             similarities = np.dot(filtered_embeddings, query_emb)
-            top_indices = np.argsort(similarities)[-top_k * 2:][::-1]
+            top_indices = np.argsort(similarities)[-top_k * 2 :][::-1]
 
             for idx in top_indices:
                 score = float(similarities[idx])
@@ -533,7 +634,9 @@ class RAG:
                 content_lower = doc["content"].lower()
                 content_words = set(content_lower.split())
                 matches = query_words & content_words
-                score = len(matches) + sum(0.5 for w in query_words if w in content_lower)
+                score = len(matches) + sum(
+                    0.5 for w in query_words if w in content_lower
+                )
                 if score > 0:
                     scored.append((doc, score))
             scored.sort(key=lambda x: x[1], reverse=True)
@@ -560,13 +663,19 @@ class RAG:
             if len(content) > max_content_len:
                 content = content[:max_content_len] + "..."
 
-            self.last_sources.append({
-                "index": i,
-                "source": doc["source"],
-                "chunk_id": doc["chunk_id"],
-                "score": score,
-                "preview": doc["content"][:200] + "..." if len(doc["content"]) > 200 else doc["content"]
-            })
+            self.last_sources.append(
+                {
+                    "index": i,
+                    "source": doc["source"],
+                    "chunk_id": doc["chunk_id"],
+                    "score": score,
+                    "preview": (
+                        doc["content"][:200] + "..."
+                        if len(doc["content"]) > 200
+                        else doc["content"]
+                    ),
+                }
+            )
 
             context_parts.append(f"{header}{content}")
 
@@ -578,13 +687,17 @@ class RAG:
 
         lines = ["", "📚 Sources:"]
         for src in self.last_sources:
-            lines.append(f"  [{src['index']}] {src['source']} (score: {src['score']:.2f})")
-            preview = src['preview'][:80].replace('\n', ' ')
-            lines.append(f"      \"{preview}...\"")
+            lines.append(
+                f"  [{src['index']}] {src['source']} (score: {src['score']:.2f})"
+            )
+            preview = src["preview"][:80].replace("\n", " ")
+            lines.append(f'      "{preview}..."')
 
         return "\n".join(lines)
 
-    def add_documents(self, file_paths: list, on_progress: Optional[Callable[[str], None]] = None) -> bool:
+    def add_documents(
+        self, file_paths: list, on_progress: Optional[Callable[[str], None]] = None
+    ) -> bool:
         def log(msg):
             print(f"[RAG] {msg}")
             if on_progress:
@@ -627,19 +740,19 @@ class RAG:
 
     def add_conversation_mapping(self, conversation_id: str, document_ids: List[str]):
         """Add conversation to document mapping."""
-        if not hasattr(self, 'conversation_docs'):
+        if not hasattr(self, "conversation_docs"):
             self.conversation_docs = {}
         self.conversation_docs[conversation_id] = document_ids
 
     def get_conversation_documents(self, conversation_id: str) -> List[str]:
         """Get documents for a specific conversation."""
-        if not hasattr(self, 'conversation_docs'):
+        if not hasattr(self, "conversation_docs"):
             return []
         return self.conversation_docs.get(conversation_id, [])
 
     def add_document_to_conversation(self, conversation_id: str, document_id: str):
         """Add a document to a conversation."""
-        if not hasattr(self, 'conversation_docs'):
+        if not hasattr(self, "conversation_docs"):
             self.conversation_docs = {}
 
         if conversation_id not in self.conversation_docs:
@@ -650,5 +763,5 @@ class RAG:
 
     def remove_conversation(self, conversation_id: str):
         """Remove a conversation and its document mappings."""
-        if hasattr(self, 'conversation_docs'):
+        if hasattr(self, "conversation_docs"):
             self.conversation_docs.pop(conversation_id, None)

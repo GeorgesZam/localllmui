@@ -1,9 +1,10 @@
-import os
 import json
+import os
 import shutil
+from dataclasses import asdict, dataclass
 from datetime import datetime
-from typing import Optional, List, Dict
-from dataclasses import dataclass, asdict
+from typing import Dict, List, Optional
+
 from utils import get_writable_path
 
 
@@ -20,7 +21,7 @@ class Conversation:
         return asdict(self)
 
     @classmethod
-    def from_dict(cls, data: dict) -> 'Conversation':
+    def from_dict(cls, data: dict) -> "Conversation":
         return cls(**data)
 
 
@@ -62,8 +63,10 @@ class ConversationManager:
     def _save_index(self):
         try:
             data = {
-                "conversations": {cid: conv.to_dict() for cid, conv in self.conversations.items()},
-                "current_id": self.current_id
+                "conversations": {
+                    cid: conv.to_dict() for cid, conv in self.conversations.items()
+                },
+                "current_id": self.current_id,
             }
             with open(self.index_file, "w", encoding="utf-8") as f:
                 json.dump(data, f, ensure_ascii=False, indent=2)
@@ -91,7 +94,7 @@ class ConversationManager:
             created_at=now,
             updated_at=now,
             messages=[],
-            document_ids=[]
+            document_ids=[],
         )
 
         self.conversations[conv_id] = conv
@@ -115,9 +118,7 @@ class ConversationManager:
 
     def get_all(self) -> List[Conversation]:
         return sorted(
-            self.conversations.values(),
-            key=lambda c: c.updated_at,
-            reverse=True
+            self.conversations.values(), key=lambda c: c.updated_at, reverse=True
         )
 
     def add_message(self, role: str, content: str):

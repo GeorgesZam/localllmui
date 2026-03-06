@@ -1,3 +1,5 @@
 {
-  "enabled_skills": {}
+  "enabled_skills": {
+    "code": 1
+  }
 }

@@ -6,10 +6,10 @@ Singleton pattern to ensure consistent access to settings across
 the application.
 """
 
-import os
 import multiprocessing
-from typing import Any, Dict, Optional
+import os
 from pathlib import Path
+from typing import Any, Dict, Optional
 
 from patterns import SingletonMeta
 
@@ -24,7 +24,7 @@ class ConfigManager(metaclass=SingletonMeta):
 
     def __init__(self):
         # Only initialize once
-        if hasattr(self, '_initialized'):
+        if hasattr(self, "_initialized"):
             return
 
         # Application
@@ -105,7 +105,7 @@ Answer in the same language as the user."""
         self._initialized = True
 
     @classmethod
-    def get_instance(cls) -> 'ConfigManager':
+    def get_instance(cls) -> "ConfigManager":
         """Get the singleton instance."""
         return cls()
 
@@ -253,8 +253,9 @@ Answer in the same language as the user."""
     def to_dict(self) -> Dict[str, Any]:
         """Export configuration as dictionary."""
         return {
-            key: value for key, value in self.__dict__.items()
-            if not key.startswith('_')
+            key: value
+            for key, value in self.__dict__.items()
+            if not key.startswith("_")
         }
 
     def load_from_file(self, filepath: str) -> bool:
@@ -269,7 +270,8 @@ Answer in the same language as the user."""
         """
         try:
             import json
-            with open(filepath, 'r') as f:
+
+            with open(filepath, "r") as f:
                 data = json.load(f)
             self.update(data)
             return True
@@ -289,7 +291,8 @@ Answer in the same language as the user."""
         """
         try:
             import json
-            with open(filepath, 'w') as f:
+
+            with open(filepath, "w") as f:
                 json.dump(self.to_dict(), f, indent=2)
             return True
         except Exception as e:

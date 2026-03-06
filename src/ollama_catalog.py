@@ -6,12 +6,13 @@ with their metadata for pull/download operations.
 """
 
 from dataclasses import dataclass
-from typing import List, Optional
 from enum import Enum
+from typing import List, Optional
 
 
 class ModelSize(Enum):
     """Model size categories."""
+
     TINY = "Tiny (< 1B)"
     SMALL = "Small (1B-3B)"
     MEDIUM = "Medium (3B-7B)"
@@ -22,6 +23,7 @@ class ModelSize(Enum):
 @dataclass
 class OllamaModelInfo:
     """Information about an Ollama model."""
+
     id: str
     ollama_name: str  # Name for `ollama pull`
     name: str
@@ -65,9 +67,8 @@ OLLAMA_MODEL_CATALOG: List[OllamaModelInfo] = [
         context_size=32768,
         requires_ram_mb=1500,
         tags=["fast", "efficient", "multilingual", "default"],
-        family="qwen"
+        family="qwen",
     ),
-
     # Qwen 2.5 - 1.5B
     OllamaModelInfo(
         id="qwen2.5-1.5b",
@@ -80,9 +81,8 @@ OLLAMA_MODEL_CATALOG: List[OllamaModelInfo] = [
         context_size=32768,
         requires_ram_mb=2500,
         tags=["balanced", "multilingual", "quality"],
-        family="qwen"
+        family="qwen",
     ),
-
     # Qwen 2.5 - 3B
     OllamaModelInfo(
         id="qwen2.5-3b",
@@ -95,9 +95,8 @@ OLLAMA_MODEL_CATALOG: List[OllamaModelInfo] = [
         context_size=32768,
         requires_ram_mb=4000,
         tags=["quality", "complex-tasks", "reasoning"],
-        family="qwen"
+        family="qwen",
     ),
-
     # Qwen 2.5 - 7B
     OllamaModelInfo(
         id="qwen2.5-7b",
@@ -110,9 +109,8 @@ OLLAMA_MODEL_CATALOG: List[OllamaModelInfo] = [
         context_size=32768,
         requires_ram_mb=8000,
         tags=["high-quality", "knowledge", "reasoning"],
-        family="qwen"
+        family="qwen",
     ),
-
     # Llama 3.2 - 1B
     OllamaModelInfo(
         id="llama3.2-1b",
@@ -125,9 +123,8 @@ OLLAMA_MODEL_CATALOG: List[OllamaModelInfo] = [
         context_size=131072,
         requires_ram_mb=2000,
         tags=["meta", "english", "general-purpose"],
-        family="llama"
+        family="llama",
     ),
-
     # Llama 3.2 - 3B
     OllamaModelInfo(
         id="llama3.2-3b",
@@ -140,9 +137,8 @@ OLLAMA_MODEL_CATALOG: List[OllamaModelInfo] = [
         context_size=131072,
         requires_ram_mb=4000,
         tags=["meta", "quality", "instruction-following"],
-        family="llama"
+        family="llama",
     ),
-
     # Phi 3.5 - Mini
     OllamaModelInfo(
         id="phi3.5-mini",
@@ -155,9 +151,8 @@ OLLAMA_MODEL_CATALOG: List[OllamaModelInfo] = [
         context_size=128000,
         requires_ram_mb=5000,
         tags=["microsoft", "coding", "reasoning", "compact"],
-        family="phi"
+        family="phi",
     ),
-
     # Phi 3 - Mini (older but stable)
     OllamaModelInfo(
         id="phi3-mini",
@@ -170,9 +165,8 @@ OLLAMA_MODEL_CATALOG: List[OllamaModelInfo] = [
         context_size=12800,
         requires_ram_mb=4500,
         tags=["microsoft", "efficient", "edge"],
-        family="phi"
+        family="phi",
     ),
-
     # Gemma 2 - 2B
     OllamaModelInfo(
         id="gemma2-2b",
@@ -185,9 +179,8 @@ OLLAMA_MODEL_CATALOG: List[OllamaModelInfo] = [
         context_size=8192,
         requires_ram_mb=3000,
         tags=["google", "efficient", "general-purpose"],
-        family="gemma"
+        family="gemma",
     ),
-
     # DeepSeek Coder - 1.3B (for coding)
     OllamaModelInfo(
         id="deepseek-coder-1.3b",
@@ -200,9 +193,8 @@ OLLAMA_MODEL_CATALOG: List[OllamaModelInfo] = [
         context_size=16384,
         requires_ram_mb=2000,
         tags=["coding", "programming", "specialized"],
-        family="deepseek"
+        family="deepseek",
     ),
-
     # Mistral - 7B
     OllamaModelInfo(
         id="mistral-7b",
@@ -215,7 +207,7 @@ OLLAMA_MODEL_CATALOG: List[OllamaModelInfo] = [
         context_size=32768,
         requires_ram_mb=7500,
         tags=["quality", "general-purpose", "instruction"],
-        family="mistral"
+        family="mistral",
     ),
 ]
 
@@ -270,16 +262,14 @@ def get_default_ollama_model() -> OllamaModelInfo:
 def get_installed_ollama_models() -> List[str]:
     """Get list of models currently installed in Ollama."""
     import subprocess
+
     try:
         result = subprocess.run(
-            ["ollama", "list"],
-            capture_output=True,
-            text=True,
-            timeout=10
+            ["ollama", "list"], capture_output=True, text=True, timeout=10
         )
         if result.returncode == 0:
             models = []
-            for line in result.stdout.split('\n')[1:]:  # Skip header
+            for line in result.stdout.split("\n")[1:]:  # Skip header
                 line = line.strip()
                 if line:
                     parts = line.split()

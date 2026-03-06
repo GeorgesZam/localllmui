@@ -4,30 +4,16 @@ Design Patterns Module for Local RAG Assistant.
 This module provides base implementations of common design patterns:
 - Singleton: Ensure only one instance of a class exists
 - Observer: Event notification system
-- Strategy: Interchangeable algorithms
-- Factory: Centralized object creation
-- Command: Encapsulated actions
 """
 
-from .singleton import Singleton, SingletonMeta
-from .observer import Observer, Observable, Event, StateEvent, ProgressEvent
-from .strategy import Strategy, StrategyContext
-from .factory import Factory, FactoryItem
-from .command import Command, CommandInvoker, CommandResult
+from .observer import Event, Observable, Observer, ProgressEvent, StateEvent
+from .singleton import SingletonMeta
 
 __all__ = [
-    'Singleton',
-    'SingletonMeta',
-    'Observer',
-    'Observable',
-    'Event',
-    'StateEvent',
-    'ProgressEvent',
-    'Strategy',
-    'StrategyContext',
-    'Factory',
-    'FactoryItem',
-    'Command',
-    'CommandInvoker',
-    'CommandResult',
+    "SingletonMeta",
+    "Observer",
+    "Observable",
+    "Event",
+    "StateEvent",
+    "ProgressEvent",
 ]

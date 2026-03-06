@@ -4,11 +4,12 @@ Improvement Engine for AI Responses.
 Ce script détecte et améliore les réponses insatisfaisantes de l'IA.
 """
 
-import re
-from typing import Dict, Optional, List
 import logging
+import re
+from typing import Dict, List, Optional
 
 logger = logging.getLogger(__name__)
+
 
 class ResponseImprover:
     """Classe pour améliorer les réponses de l'IA."""
@@ -62,7 +63,7 @@ class ResponseImprover:
         # Vérifier si la réponse contient des placeholders vides
         empty_patterns = [
             r"\[\s*\]",  # [ ] ou []
-            r"\{.*\}",   # {} contenant peu de contenu
+            r"\{.*\}",  # {} contenant peu de contenu
         ]
 
         for pattern in empty_patterns:
@@ -83,18 +84,27 @@ class ResponseImprover:
             suggestions["length"] = "Your question is too short. Add more details."
 
         # Vérifier les questions générales
-        if question_lower.startswith(("what is ", "what are ", "who ", "when ", "where ")):
-            suggestions["specificity"] = "Try asking 'How' or 'Why' questions for more detailed answers."
+        if question_lower.startswith(
+            ("what is ", "what are ", "who ", "when ", "where ")
+        ):
+            suggestions["specificity"] = (
+                "Try asking 'How' or 'Why' questions for more detailed answers."
+            )
 
         # Vérifier les mots de vocabulaire technique
         if any(word in question_lower for word in ["bug", "error", "problem", "issue"]):
-            suggestions["technical"] = "Describe the specific error message or problem you're facing."
+            suggestions["technical"] = (
+                "Describe the specific error message or problem you're facing."
+            )
 
-        
         return suggestions
 
-    def improve_response(self, original_response: str, question: str,
-                       available_context: Optional[Dict] = None) -> str:
+    def improve_response(
+        self,
+        original_response: str,
+        question: str,
+        available_context: Optional[Dict] = None,
+    ) -> str:
         """Améliorer une réponse insuffisante."""
         if not self.is_insufficient_response(original_response, question):
             return original_response
@@ -126,21 +136,26 @@ class ResponseImprover:
 
     def _improve_with_rag(self, question: str, context: Dict) -> Optional[str]:
         """Améliorer en utilisant le système RAG."""
-        if not hasattr(self.rag_system, 'search'):
+        if not hasattr(self.rag_system, "search"):
             return None
 
         try:
             # Chercher des documents pertinents
             search_results = self.rag_system.search(
-                question,
-                top_k=3,
-                max_context_chars=500
+                question, top_k=3, max_context_chars=500
             )
 
             if search_results and len(search_results[1]) > 0:
-                return f" I found some relevant documents. You might want to check these first:\n" + \
-                       " - " + "\n - ".join([doc.get('title', doc.get('filename', 'Document'))
-                                            for doc in search_results[1][:2]])
+                return (
+                    f" I found some relevant documents. You might want to check these first:\n"
+                    + " - "
+                    + "\n - ".join(
+                        [
+                            doc.get("title", doc.get("filename", "Document"))
+                            for doc in search_results[1][:2]
+                        ]
+                    )
+                )
         except Exception as e:
             logger.error(f"Erreur RAG: {e}")
 
@@ -181,7 +196,9 @@ class ResponseImprover:
 
         return None
 
-    def generate_follow_up_questions(self, question: str, original_response: str) -> List[str]:
+    def generate_follow_up_questions(
+        self, question: str, original_response: str
+    ) -> List[str]:
         """Générer des questions de suivi pertinentes."""
         follow_ups = []
         question_lower = question.lower()
@@ -200,11 +217,15 @@ class ResponseImprover:
             follow_ups.append("Are there any side effects?")
 
         # Ajouter des questions basées sur la réponse insuffisante
-        if "don't know" in original_response.lower() or "not sure" in original_response.lower():
+        if (
+            "don't know" in original_response.lower()
+            or "not sure" in original_response.lower()
+        ):
             follow_ups.append("Where can I find more information about this?")
             follow_ups.append("Can you direct me to the official documentation?")
 
         return follow_ups[:3]  # Retourner jusqu'à 3 questions
+
 
 def main():
     """Test du système d'amélioration de réponses."""
@@ -217,16 +238,16 @@ def main():
     test_cases = [
         {
             "question": "How do I fix this bug?",
-            "response": "I don't know what the bug is."
+            "response": "I don't know what the bug is.",
         },
         {
             "question": "What is the configuration?",
-            "response": "I don't have this information."
+            "response": "I don't have this information.",
         },
         {
             "question": "How to install Python?",
-            "response": "You need to download it from python.org."
-        }
+            "response": "You need to download it from python.org.",
+        },
     ]
 
     print("\n--- Test des réponses ---")
@@ -236,17 +257,22 @@ def main():
         print(f"Réponse originale: {case['response']}")
 
         # Vérifier si la réponse est insuffisante
-        is_insufficient = improver.is_insufficient_response(case['response'], case['question'])
+        is_insufficient = improver.is_insufficient_response(
+            case["response"], case["question"]
+        )
         print(f"Est insuffisante: {is_insufficient}")
 
         if is_insufficient:
             # Obtenir des suggestions
-            suggestions = improver.get_improvement_suggestions(case['question'])
+            suggestions = improver.get_improvement_suggestions(case["question"])
             print(f"Suggestions: {suggestions}")
 
             # Obtenir des questions de suivi
-            follow_ups = improver.generate_follow_up_questions(case['question'], case['response'])
+            follow_ups = improver.generate_follow_up_questions(
+                case["question"], case["response"]
+            )
             print(f"Questions de suivi: {follow_ups}")
+
 
 if __name__ == "__main__":
     main()

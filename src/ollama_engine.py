@@ -11,19 +11,21 @@ import re
 import subprocess
 import threading
 import time
-import requests
-from typing import Iterator, Optional, Callable, Tuple
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Callable, Iterator, Optional, Tuple
+
+import requests
 
 try:
-    from patterns import SingletonMeta, Observable, Event, StateEvent
     from config import ConfigManager
+    from patterns import Event, Observable, SingletonMeta, StateEvent
     from rag import RAG
 except ImportError:
     # Fallback for when run standalone
     class SingletonMeta(type):
         _instances = {}
+
         def __call__(cls, *args, **kwargs):
             if cls not in cls._instances:
                 cls._instances[cls] = super().__call__(*args, **kwargs)
@@ -49,13 +51,13 @@ except ImportError:
             self.data = data
 
     class StateEvent:
-        LOADING = 'loading'
-        READY = 'ready'
-        ERROR = 'error'
+        LOADING = "loading"
+        READY = "ready"
+        ERROR = "error"
 
         @staticmethod
         def create(event_type, data):
-            return {'type': event_type, 'data': data}
+            return {"type": event_type, "data": data}
 
     class ConfigManager:
         CONTEXT_SIZE = 8192
@@ -80,6 +82,7 @@ except ImportError:
 @dataclass
 class GenerationStats:
     """Statistics for a generation run."""
+
     tokens_generated: int = 0
     time_elapsed: float = 0.0
     tokens_per_second: float = 0.0
@@ -90,6 +93,7 @@ class GenerationStats:
 @dataclass
 class OllamaModel:
     """Information about an Ollama model."""
+
     name: str
     size: int
     quantization: str
@@ -108,10 +112,7 @@ class OllamaInstaller:
         """Check if Ollama is installed."""
         try:
             result = subprocess.run(
-                ["ollama", "--version"],
-                capture_output=True,
-                text=True,
-                timeout=5
+                ["ollama", "--version"], capture_output=True, text=True, timeout=5
             )
             return result.returncode == 0
         except (FileNotFoundError, subprocess.TimeoutExpired):
@@ -135,7 +136,7 @@ class OllamaInstaller:
                 ["ollama", "serve"],
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
-                creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0
+                creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
             )
             # Wait for server to start
             for _ in range(20):  # Wait up to 10 seconds
@@ -149,11 +150,13 @@ class OllamaInstaller:
     @staticmethod
     def get_download_path() -> str:
         """Get path for Ollama installer download."""
-        temp_dir = Path(os.environ.get('TEMP', '/tmp'))
+        temp_dir = Path(os.environ.get("TEMP", "/tmp"))
         return str(temp_dir / "OllamaSetup.exe")
 
     @staticmethod
-    def download_installer(on_progress: Optional[Callable[[int, int], None]] = None) -> Tuple[bool, str]:
+    def download_installer(
+        on_progress: Optional[Callable[[int, int], None]] = None,
+    ) -> Tuple[bool, str]:
         """Download Ollama installer."""
         import urllib.request
 
@@ -167,9 +170,7 @@ class OllamaInstaller:
         try:
             print(f"[Ollama] Downloading from {OllamaInstaller.OLLAMA_URL}")
             urllib.request.urlretrieve(
-                OllamaInstaller.OLLAMA_URL,
-                installer_path,
-                reporthook=report_progress
+                OllamaInstaller.OLLAMA_URL, installer_path, reporthook=report_progress
             )
             return True, installer_path
         except Exception as e:
@@ -181,9 +182,7 @@ class OllamaInstaller:
         try:
             print(f"[Ollama] Running installer: {installer_path}")
             result = subprocess.run(
-                [installer_path],
-                shell=True,
-                timeout=300  # 5 minutes max
+                [installer_path], shell=True, timeout=300  # 5 minutes max
             )
             return True, "Installer completed"
         except subprocess.TimeoutExpired:
@@ -220,7 +219,7 @@ class OllamaEngine(Observable, metaclass=SingletonMeta):
 
     def __init__(self):
         # Only initialize once (Singleton pattern)
-        if hasattr(self, '_initialized'):
+        if hasattr(self, "_initialized"):
             return
 
         # Initialize Observable base class
@@ -260,7 +259,7 @@ class OllamaEngine(Observable, metaclass=SingletonMeta):
         self._initialized = True
 
     @classmethod
-    def get_instance(cls) -> 'OllamaEngine':
+    def get_instance(cls) -> "OllamaEngine":
         """Get the singleton Ollama engine instance."""
         return cls()
 
@@ -282,8 +281,11 @@ class OllamaEngine(Observable, metaclass=SingletonMeta):
 
         return True, "OK"
 
-    def _ensure_ollama_running(self, on_progress: Optional[Callable[[str], None]] = None) -> bool:
+    def _ensure_ollama_running(
+        self, on_progress: Optional[Callable[[str], None]] = None
+    ) -> bool:
         """Ensure Ollama is installed and running."""
+
         def log(msg: str) -> None:
             print(f"[Ollama] {msg}")
             if on_progress:
@@ -307,8 +309,11 @@ class OllamaEngine(Observable, metaclass=SingletonMeta):
 
         return True
 
-    def _pull_model(self, model: str, on_progress: Optional[Callable[[str], None]] = None) -> bool:
+    def _pull_model(
+        self, model: str, on_progress: Optional[Callable[[str], None]] = None
+    ) -> bool:
         """Pull a model from Ollama registry."""
+
         def log(msg: str) -> None:
             print(f"[Ollama] {msg}")
             if on_progress:
@@ -323,7 +328,7 @@ class OllamaEngine(Observable, metaclass=SingletonMeta):
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 text=True,
-                bufsize=1
+                bufsize=1,
             )
 
             # Stream output
@@ -354,7 +359,7 @@ class OllamaEngine(Observable, metaclass=SingletonMeta):
             response = requests.get(f"{self.base_url}/api/tags", timeout=5)
             if response.status_code == 200:
                 data = response.json()
-                return [m['name'] for m in data.get('models', [])]
+                return [m["name"] for m in data.get("models", [])]
         except requests.RequestException:
             pass
         return []
@@ -365,13 +370,17 @@ class OllamaEngine(Observable, metaclass=SingletonMeta):
             response = requests.post(
                 f"{self.base_url}/api/generate",
                 json={"model": model, "prompt": "test", "stream": False},
-                timeout=30
+                timeout=30,
             )
             return response.status_code == 200
         except requests.RequestException:
             return False
 
-    def load(self, on_progress: Optional[Callable[[str], None]] = None, model_path: Optional[str] = None) -> bool:
+    def load(
+        self,
+        on_progress: Optional[Callable[[str], None]] = None,
+        model_path: Optional[str] = None,
+    ) -> bool:
         """
         Initialize Ollama engine and ensure model is available.
 
@@ -382,23 +391,18 @@ class OllamaEngine(Observable, metaclass=SingletonMeta):
         Returns:
             True if loading successful
         """
+
         def log(msg: str) -> None:
             print(f"[Ollama] {msg}")
             if on_progress:
                 on_progress(msg)
-            self.notify(StateEvent.create(
-                StateEvent.LOADING,
-                {'message': msg}
-            ))
+            self.notify(StateEvent.create(StateEvent.LOADING, {"message": msg}))
 
         try:
             # Ensure Ollama is running
             if not self._ensure_ollama_running(on_progress):
                 self.error = "Ollama is not available. Please install Ollama from https://ollama.com/download"
-                self.notify(StateEvent.create(
-                    StateEvent.ERROR,
-                    {'error': self.error}
-                ))
+                self.notify(StateEvent.create(StateEvent.ERROR, {"error": self.error}))
                 return False
 
             # Set model
@@ -409,17 +413,17 @@ class OllamaEngine(Observable, metaclass=SingletonMeta):
 
             # Check if model exists
             models = self._get_available_models()
-            model_names = [m.split(':')[0] for m in models]
+            model_names = [m.split(":")[0] for m in models]
 
             # Check if our model or its family is available
-            model_family = self.model.split(':')[0]
+            model_family = self.model.split(":")[0]
             if model_family not in model_names:
                 log(f"Model {self.model} not found locally")
                 log(f"Pulling {self.model} from Ollama registry...")
                 if not self._pull_model(self.model, on_progress):
                     # Try alternative models
                     for alt in self.ALTERNATIVE_MODELS:
-                        alt_family = alt.split(':')[0]
+                        alt_family = alt.split(":")[0]
                         if alt_family in model_names:
                             log(f"Using alternative model: {alt}")
                             self.model = alt
@@ -450,23 +454,18 @@ class OllamaEngine(Observable, metaclass=SingletonMeta):
             self.is_ready = True
             log("Ready!")
 
-            self.notify(StateEvent.create(
-                StateEvent.READY,
-                {'model': self.model}
-            ))
+            self.notify(StateEvent.create(StateEvent.READY, {"model": self.model}))
 
             return True
 
         except Exception as e:
             self.error = str(e)
             import traceback
+
             traceback.print_exc()
             log(f"Error: {self.error}")
 
-            self.notify(StateEvent.create(
-                StateEvent.ERROR,
-                {'error': self.error}
-            ))
+            self.notify(StateEvent.create(StateEvent.ERROR, {"error": self.error}))
             return False
 
     def set_skills_executor(self, skills_executor):
@@ -480,7 +479,9 @@ class OllamaEngine(Observable, metaclass=SingletonMeta):
             enhanced_prompt, skill_names = self.skills_executor.apply_skills_to_prompt(
                 "", base_prompt
             )
-            self._enabled_skills_content = enhanced_prompt.replace(base_prompt, "").strip()
+            self._enabled_skills_content = enhanced_prompt.replace(
+                base_prompt, ""
+            ).strip()
         else:
             self._enabled_skills_content = ""
 
@@ -507,7 +508,7 @@ Answer based on context. If not found, say so."""
         prompt = f"System: {system}\n\n"
 
         # Add history
-        for h in self.history[-self._max_history:]:
+        for h in self.history[-self._max_history :]:
             prompt += f"User: {h['user']}\n"
             prompt += f"Assistant: {h['assistant']}\n"
 
@@ -517,7 +518,9 @@ Answer based on context. If not found, say so."""
 
         return prompt
 
-    def generate(self, message: str, allowed_document_sources: list = None) -> Iterator[str]:
+    def generate(
+        self, message: str, allowed_document_sources: list = None
+    ) -> Iterator[str]:
         """
         Generate response using Ollama.
 
@@ -539,7 +542,9 @@ Answer based on context. If not found, say so."""
         sources = []
 
         if self._config.RAG_ENABLED and self.rag and self.rag.documents:
-            rag_context, sources = self.rag.search(message, allowed_sources=allowed_document_sources)
+            rag_context, sources = self.rag.search(
+                message, allowed_sources=allowed_document_sources
+            )
             self._current_stats.rag_results_used = len(sources)
 
         prompt = self._build_prompt(message, rag_context)
@@ -559,10 +564,10 @@ Answer based on context. If not found, say so."""
                         "temperature": self._config.TEMPERATURE,
                         "top_p": self._config.TOP_P,
                         "repeat_penalty": self._config.REPEAT_PENALTY,
-                    }
+                    },
                 },
                 stream=True,
-                timeout=120
+                timeout=120,
             )
 
             response.raise_for_status()
@@ -575,13 +580,13 @@ Answer based on context. If not found, say so."""
                     continue
 
                 try:
-                    data = json.loads(line.decode('utf-8'))
-                    if 'response' in data:
-                        token = data['response']
+                    data = json.loads(line.decode("utf-8"))
+                    if "response" in data:
+                        token = data["response"]
                         full_response += token
                         self._current_stats.tokens_generated += 1
                         yield token
-                    if data.get('done', False):
+                    if data.get("done", False):
                         break
                 except json.JSONDecodeError:
                     continue
@@ -593,7 +598,9 @@ Answer based on context. If not found, say so."""
         elapsed = time.time() - start_time
         self._current_stats.time_elapsed = elapsed
         if elapsed > 0:
-            self._current_stats.tokens_per_second = self._current_stats.tokens_generated / elapsed
+            self._current_stats.tokens_per_second = (
+                self._current_stats.tokens_generated / elapsed
+            )
 
         # Add sources if RAG was used
         if self._config.RAG_SHOW_SOURCES and sources:
@@ -607,20 +614,25 @@ Answer based on context. If not found, say so."""
             self.history.append({"user": message, "assistant": clean})
 
             if len(self.history) > self._max_history * 2:
-                self.history = self.history[-self._max_history:]
+                self.history = self.history[-self._max_history :]
 
         # Notify completion
-        self.notify(Event('generation_complete', {
-            'tokens': self._current_stats.tokens_generated,
-            'has_code': self._current_stats.has_code_execution,
-            'rag_results': self._current_stats.rag_results_used
-        }))
+        self.notify(
+            Event(
+                "generation_complete",
+                {
+                    "tokens": self._current_stats.tokens_generated,
+                    "has_code": self._current_stats.has_code_execution,
+                    "rag_results": self._current_stats.rag_results_used,
+                },
+            )
+        )
 
     def clear_history(self) -> None:
         """Clear conversation history."""
         self.history = []
         print("[Ollama] History cleared")
-        self.notify(Event('history_cleared', {}))
+        self.notify(Event("history_cleared", {}))
 
     def get_stats(self) -> GenerationStats:
         """Get statistics from the last generation."""
@@ -631,9 +643,14 @@ Answer based on context. If not found, say so."""
         self.history = []
         self.error = None
         self._current_stats = GenerationStats()
-        self.notify(Event('engine_reset', {}))
+        self.notify(Event("engine_reset", {}))
 
-    def switch_model(self, model_path: str, model_id: str, on_progress: Optional[Callable[[str], None]] = None) -> bool:
+    def switch_model(
+        self,
+        model_path: str,
+        model_id: str,
+        on_progress: Optional[Callable[[str], None]] = None,
+    ) -> bool:
         """
         Switch to a different model.
 

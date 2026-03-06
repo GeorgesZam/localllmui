@@ -1,18 +1,18 @@
 import os
+import queue
 import sys
 import threading
-import queue
 from pathlib import Path
 from typing import Optional
 
 # CRITICAL FIX: Add src directory to path for PyInstaller standalone builds
 # This ensures imports work when bundled in a single .exe
-if getattr(sys, 'frozen', False):
+if getattr(sys, "frozen", False):
     # Running as PyInstaller bundle
-    if hasattr(sys, '_MEIPASS'):
-        src_path = os.path.join(sys._MEIPASS, 'src')
+    if hasattr(sys, "_MEIPASS"):
+        src_path = os.path.join(sys._MEIPASS, "src")
     else:
-        src_path = os.path.join(os.path.dirname(sys.executable), 'src')
+        src_path = os.path.join(os.path.dirname(sys.executable), "src")
 else:
     # Running from source
     src_path = os.path.join(os.path.dirname(__file__))
@@ -20,45 +20,43 @@ else:
 if src_path not in sys.path:
     sys.path.insert(0, src_path)
 
-import customtkinter as ctk
-from tkinter import filedialog, messagebox
-
 # Use Ollama on Windows, llama_cpp on macOS (due to Metal GPU issues)
 import platform
+from tkinter import filedialog, messagebox
+
+import customtkinter as ctk
+
 USE_OLLAMA = platform.system() == "Windows"
 
 if USE_OLLAMA:
     try:
         from ollama_engine import OllamaEngine as LLMEngine
+
         print("[App] Using Ollama engine (Windows)")
     except ImportError:
         from llm import LLMEngine
+
         USE_OLLAMA = False
         print("[App] Ollama not available, using llama_cpp")
 else:
     from llm import LLMEngine
+
     print("[App] Using llama_cpp engine (macOS/Linux)")
     USE_OLLAMA = False
-from conversations import ConversationManager
-from ui import ChatUI, ModelCatalogWindow, RAGConfigWindow
-from skills_manager import SkillsManager, SkillExecutor
 import config
+from conversations import ConversationManager
+from skills_manager import SkillExecutor, SkillsManager
+from ui import ChatUI, ModelCatalogWindow, RAGConfigWindow
 
 # Import the right model manager based on platform
 if USE_OLLAMA:
     from ollama_model_manager import OllamaModelManager as ModelManager
+
     print("[App] Using Ollama Model Manager")
 else:
     from model_manager import ModelManager
+
     print("[App] Using llama_cpp Model Manager")
-
-
-def get_resource_path(relative_path: str) -> str:
-    if hasattr(sys, '_MEIPASS'):
-        base_path = Path(sys._MEIPASS)
-    else:
-        base_path = Path(__file__).parent
-    return str(base_path / relative_path)
 
 
 class App(ctk.CTk):
@@ -109,7 +107,7 @@ class App(ctk.CTk):
             skills_manager=self.skills_manager,
             on_skill_toggle=self._on_skill_toggle,
             on_open_model_catalog=self._open_model_catalog,
-            model_manager=self.model_manager
+            model_manager=self.model_manager,
         )
 
     def _on_skill_toggle(self, skill_id: str, enabled: bool):
@@ -122,29 +120,40 @@ class App(ctk.CTk):
             try:
                 # Check Ollama status if using Ollama engine
                 if USE_OLLAMA:
-                    from ollama_engine import OllamaInstaller
                     import subprocess
 
+                    from ollama_engine import OllamaInstaller
+
                     if not OllamaInstaller.is_ollama_installed():
-                        self.message_queue.put(("status", "Installing Ollama (one-time setup)..."))
+                        self.message_queue.put(
+                            ("status", "Installing Ollama (one-time setup)...")
+                        )
                         # Download and install Ollama automatically
                         success, msg = OllamaInstaller.download_installer()
                         if not success:
-                            self.message_queue.put(("error", f"Failed to download Ollama: {msg}"))
+                            self.message_queue.put(
+                                ("error", f"Failed to download Ollama: {msg}")
+                            )
                             return
 
                         # Run installer silently (will show progress but auto-continue)
-                        self.message_queue.put(("status", "Running Ollama installer..."))
+                        self.message_queue.put(
+                            ("status", "Running Ollama installer...")
+                        )
                         success, msg = OllamaInstaller.run_installer(wait=True)
                         if not success:
-                            self.message_queue.put(("error", f"Installation failed: {msg}"))
+                            self.message_queue.put(
+                                ("error", f"Installation failed: {msg}")
+                            )
                             return
 
                     if not OllamaInstaller.is_ollama_running():
                         self.message_queue.put(("status", "Starting Ollama server..."))
                         OllamaInstaller.start_ollama()
 
-                self.llm.load(on_progress=lambda msg: self.message_queue.put(("status", msg)))
+                self.llm.load(
+                    on_progress=lambda msg: self.message_queue.put(("status", msg))
+                )
                 self.message_queue.put(("initialized", None))
             except Exception as e:
                 self.message_queue.put(("error", str(e)))
@@ -184,9 +193,9 @@ class App(ctk.CTk):
                     if conv:
                         self.conv_manager.add_message("assistant", data)
                         # Ajouter à l'historique de la conversation
-                        self.ui.response_handler.add_to_conversation(self.last_question, data)
-                        # Vérifier si la réponse nécessite des suggestions
-                        self.ui.show_response_suggestions(self.last_question, data)
+                        self.ui.response_handler.add_to_conversation(
+                            self.last_question, data
+                        )
                     # Apply markdown formatting to code blocks
                     self.ui.apply_markdown_to_last_message()
                     self.is_processing = False
@@ -199,6 +208,8 @@ class App(ctk.CTk):
                         conv = self.conv_manager.get_current()
                         if conv:
                             self.conv_manager.add_message("assistant", data)
+                        # Apply markdown formatting even for stopped responses
+                        self.ui.apply_markdown_to_last_message()
                     self.is_processing = False
                     self.ui.set_generating_state(False)
                     self.ui.set_enabled(True)
@@ -262,11 +273,20 @@ class App(ctk.CTk):
             # Check if there's a download in progress
             download_progress = self.model_manager.get_download_progress()
             if download_progress and download_progress.status == "downloading":
-                self.ui.set_status(f"Downloading model... {download_progress.percentage:.1f}%", is_error=False)
-                messagebox.showinfo("Model Downloading", f"Please wait for the model to finish downloading.\n\nProgress: {download_progress.percentage:.1f}%")
+                self.ui.set_status(
+                    f"Downloading model... {download_progress.percentage:.1f}%",
+                    is_error=False,
+                )
+                messagebox.showinfo(
+                    "Model Downloading",
+                    f"Please wait for the model to finish downloading.\n\nProgress: {download_progress.percentage:.1f}%",
+                )
             else:
                 self.ui.set_status("Model not ready", is_error=True)
-                messagebox.showwarning("Model Not Ready", "The model is not ready yet. Please wait for initialization to complete.")
+                messagebox.showwarning(
+                    "Model Not Ready",
+                    "The model is not ready yet. Please wait for initialization to complete.",
+                )
             return
 
         conv = self.conv_manager.get_current()
@@ -278,6 +298,9 @@ class App(ctk.CTk):
 
         self.conv_manager.add_message("user", text)
         self.ui.add_message("You", text)
+
+        # Add Assistant label before streaming response
+        self.ui.chat.insert("end", "Assistant:\n")
 
         self.is_processing = True
         self.ui.set_enabled(False)
@@ -291,7 +314,9 @@ class App(ctk.CTk):
         def generate():
             try:
                 response = ""
-                for chunk in self.llm.generate(text, allowed_document_sources=allowed_docs):
+                for chunk in self.llm.generate(
+                    text, allowed_document_sources=allowed_docs
+                ):
                     if self.llm._stop_requested.is_set():
                         break
                     response += chunk
@@ -329,6 +354,7 @@ class App(ctk.CTk):
 
             try:
                 import shutil
+
                 shutil.copy2(file_path, dest)
                 self.conv_manager.add_document(filename)
                 added += 1
@@ -349,7 +375,7 @@ class App(ctk.CTk):
         conv = self.conv_manager.create_conversation()
         self.ui.clear_chat()
         # Update RAG conversation mapping
-        if hasattr(self.llm, 'rag') and self.llm.rag:
+        if hasattr(self.llm, "rag") and self.llm.rag:
             self.llm.rag.add_conversation_mapping(conv.id, conv.document_ids)
         self.ui.update_doc_info()
         # Set conversation for response handler
@@ -362,7 +388,7 @@ class App(ctk.CTk):
             self.ui.clear_chat()
             self.ui.load_messages(conv.messages)
             # Update RAG conversation mapping
-            if hasattr(self.llm, 'rag') and self.llm.rag:
+            if hasattr(self.llm, "rag") and self.llm.rag:
                 self.llm.rag.add_conversation_mapping(conv_id, conv.document_ids)
             self.ui.update_doc_count(len(conv.document_ids))
             self.ui.update_doc_info()
@@ -384,14 +410,13 @@ class App(ctk.CTk):
             self,
             self.model_manager,
             on_model_select=self._on_model_selected,
-            on_model_download=self._on_model_download
+            on_model_download=self._on_model_download,
         )
 
     def _on_model_selected(self, model_id: str):
         """Handle model selection from catalog."""
         if messagebox.askyesno(
-            "Switch Model",
-            "Switch to this model? The current model will be unloaded."
+            "Switch Model", "Switch to this model? The current model will be unloaded."
         ):
             model_path = self.model_manager.get_model_path(model_id)
             if model_path:
@@ -408,7 +433,9 @@ class App(ctk.CTk):
                         success = self.llm.switch_model(
                             model_path,
                             model_id,
-                            on_progress=lambda msg: self.message_queue.put(("status", msg))
+                            on_progress=lambda msg: self.message_queue.put(
+                                ("status", msg)
+                            ),
                         )
 
                         if success:
@@ -417,8 +444,14 @@ class App(ctk.CTk):
                             self.message_queue.put(("model_switched", model_id))
                         else:
                             # Get the specific error from LLM engine
-                            error_msg = self.llm.error if hasattr(self.llm, 'error') else "Failed to switch model"
-                            self.message_queue.put(("error", f"Failed to switch model: {error_msg}"))
+                            error_msg = (
+                                self.llm.error
+                                if hasattr(self.llm, "error")
+                                else "Failed to switch model"
+                            )
+                            self.message_queue.put(
+                                ("error", f"Failed to switch model: {error_msg}")
+                            )
                             # Ensure UI is re-enabled on failure
                             self.message_queue.put(("switch_failed", error_msg))
 

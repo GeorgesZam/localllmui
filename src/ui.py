@@ -1,10 +1,16 @@
 import os
 import re
-from pathlib import Path
 from dataclasses import replace
-import customtkinter as ctk
-from tkinter import filedialog, messagebox, Tk
+from io import StringIO
+from pathlib import Path
+from tkinter import Tk, filedialog, messagebox
 from typing import Callable, Optional
+
+import customtkinter as ctk
+from markdown import markdown
+from rich.console import Console
+from rich.markdown import Markdown as RichMarkdown
+
 import config
 from patterns.observer import Observer
 from rag import RAG
@@ -16,8 +22,16 @@ ctk.set_default_color_theme("blue")
 
 
 class ConversationItem(ctk.CTkFrame):
-    def __init__(self, parent, conv_id: str, title: str, doc_count: int,
-                 is_active: bool, on_select: Callable, on_delete: Callable):
+    def __init__(
+        self,
+        parent,
+        conv_id: str,
+        title: str,
+        doc_count: int,
+        is_active: bool,
+        on_select: Callable,
+        on_delete: Callable,
+    ):
         super().__init__(parent, corner_radius=8, height=50)
 
         self.conv_id = conv_id
@@ -35,31 +49,39 @@ class ConversationItem(ctk.CTkFrame):
             self,
             text=title[:25] + "..." if len(title) > 25 else title,
             font=ctk.CTkFont(size=12, weight="bold" if is_active else "normal"),
-            anchor="w"
+            anchor="w",
         )
         title_label.pack(side="left", padx=10, pady=5, fill="x", expand=True)
         title_label.bind("<Button-1>", lambda e: self.on_select(self.conv_id))
 
         if doc_count > 0:
             doc_badge = ctk.CTkLabel(
-                self, text=f"📄{doc_count}",
+                self,
+                text=f"📄{doc_count}",
                 font=ctk.CTkFont(size=10),
-                text_color=("#50fa7b", "#40c969")
+                text_color=("#50fa7b", "#40c969"),
             )
             doc_badge.pack(side="left", padx=(0, 5))
             doc_badge.bind("<Button-1>", lambda e: self.on_select(self.conv_id))
 
         delete_btn = ctk.CTkButton(
-            self, text="✕", width=24, height=24, corner_radius=4,
-            fg_color="transparent", hover_color=("#ff5555", "#cc4444"),
+            self,
+            text="✕",
+            width=24,
+            height=24,
+            corner_radius=4,
+            fg_color="transparent",
+            hover_color=("#ff5555", "#cc4444"),
             font=ctk.CTkFont(size=12),
-            command=lambda: self.on_delete(self.conv_id)
+            command=lambda: self.on_delete(self.conv_id),
         )
         delete_btn.pack(side="right", padx=5)
 
 
 class Sidebar(ctk.CTkFrame):
-    def __init__(self, parent, on_new: Callable, on_select: Callable, on_delete: Callable):
+    def __init__(
+        self, parent, on_new: Callable, on_select: Callable, on_delete: Callable
+    ):
         super().__init__(parent, width=250, corner_radius=0)
 
         self.on_new = on_new
@@ -74,21 +96,29 @@ class Sidebar(ctk.CTkFrame):
         header.pack(fill="x", padx=10, pady=10)
         header.pack_propagate(False)
 
-        ctk.CTkLabel(header, text="💬 Chats",
-                     font=ctk.CTkFont(size=18, weight="bold")).pack(side="left", pady=10)
+        ctk.CTkLabel(
+            header, text="💬 Chats", font=ctk.CTkFont(size=18, weight="bold")
+        ).pack(side="left", pady=10)
 
         ctk.CTkButton(
-            header, text="+ New", width=70, height=32, corner_radius=8,
+            header,
+            text="+ New",
+            width=70,
+            height=32,
+            corner_radius=8,
             font=ctk.CTkFont(size=12, weight="bold"),
-            fg_color=("#50fa7b", "#40c969"), hover_color=("#40c969", "#30b959"),
-            text_color=("#000000", "#000000"), command=self.on_new
+            fg_color=("#50fa7b", "#40c969"),
+            hover_color=("#40c969", "#30b959"),
+            text_color=("#000000", "#000000"),
+            command=self.on_new,
         ).pack(side="right", pady=10)
 
-        ctk.CTkFrame(self, height=2, fg_color=("gray70", "gray30")).pack(fill="x", padx=10, pady=(0, 10))
+        ctk.CTkFrame(self, height=2, fg_color=("gray70", "gray30")).pack(
+            fill="x", padx=10, pady=(0, 10)
+        )
 
         self.conv_list = ctk.CTkScrollableFrame(
-            self, fg_color="transparent",
-            scrollbar_button_color=("#4a9eff", "#3b7ac7")
+            self, fg_color="transparent", scrollbar_button_color=("#4a9eff", "#3b7ac7")
         )
         self.conv_list.pack(fill="both", expand=True, padx=5, pady=5)
 
@@ -98,16 +128,22 @@ class Sidebar(ctk.CTkFrame):
 
         if not conversations:
             ctk.CTkLabel(
-                self.conv_list, text="No conversations yet.\nClick '+ New' to start!",
-                font=ctk.CTkFont(size=12), text_color=("gray50", "gray50")
+                self.conv_list,
+                text="No conversations yet.\nClick '+ New' to start!",
+                font=ctk.CTkFont(size=12),
+                text_color=("gray50", "gray50"),
             ).pack(pady=20)
             return
 
         for conv in conversations:
             item = ConversationItem(
-                self.conv_list, conv_id=conv.id, title=conv.title,
-                doc_count=len(conv.document_ids), is_active=(conv.id == current_id),
-                on_select=self.on_select, on_delete=self._confirm_delete
+                self.conv_list,
+                conv_id=conv.id,
+                title=conv.title,
+                doc_count=len(conv.document_ids),
+                is_active=(conv.id == current_id),
+                on_select=self.on_select,
+                on_delete=self._confirm_delete,
             )
             item.pack(fill="x", pady=2)
 
@@ -139,14 +175,19 @@ class FileDownloadManager(ctk.CTkToplevel):
         header.pack_propagate(False)
 
         ctk.CTkLabel(
-            header, text="📁 Files Ready for Download",
-            font=ctk.CTkFont(size=16, weight="bold")
+            header,
+            text="📁 Files Ready for Download",
+            font=ctk.CTkFont(size=16, weight="bold"),
         ).pack(side="left", pady=10)
 
         ctk.CTkButton(
-            header, text="✕", width=30, height=30,
+            header,
+            text="✕",
+            width=30,
+            height=30,
             command=self._close,
-            fg_color="transparent", hover_color=("#ff5555", "#cc4444")
+            fg_color="transparent",
+            hover_color=("#ff5555", "#cc4444"),
         ).pack(side="right", padx=10)
 
         # Instructions
@@ -154,7 +195,7 @@ class FileDownloadManager(ctk.CTkToplevel):
             self,
             text="Click a file to choose where to save it. Files will be deleted when you close this window.",
             font=ctk.CTkFont(size=11),
-            text_color=("gray70", "gray50")
+            text_color=("gray70", "gray50"),
         )
         instructions.pack(pady=(0, 10))
 
@@ -171,49 +212,56 @@ class FileDownloadManager(ctk.CTkToplevel):
         footer.pack_propagate(False)
 
         ctk.CTkButton(
-            footer, text="Close (Files will be deleted)",
+            footer,
+            text="Close (Files will be deleted)",
             command=self._close,
-            fg_color=("#ff5555", "#cc4444"), hover_color=("#ff7777", "#dd5555")
+            fg_color=("#ff5555", "#cc4444"),
+            hover_color=("#ff7777", "#dd5555"),
         ).pack(side="right", pady=10)
 
     def _create_file_item(self, parent, file_info: dict):
         """Create a file item with download button."""
         item_frame = ctk.CTkFrame(
-            parent,
-            fg_color=("gray85", "gray25"),
-            corner_radius=8
+            parent, fg_color=("gray85", "gray25"), corner_radius=8
         )
         item_frame.pack(fill="x", pady=5)
 
         # File icon based on type
-        ext = os.path.splitext(file_info['filename'])[1].lower()
+        ext = os.path.splitext(file_info["filename"])[1].lower()
         icons = {
-            '.pdf': '📕', '.docx': '📘', '.xlsx': '📗',
-            '.pptx': '📙', '.txt': '📄', '.csv': '📊',
-            '.png': '🖼️', '.jpg': '🖼️', '.jpeg': '🖼️',
-            '.json': '📋', '.html': '🌐'
+            ".pdf": "📕",
+            ".docx": "📘",
+            ".xlsx": "📗",
+            ".pptx": "📙",
+            ".txt": "📄",
+            ".csv": "📊",
+            ".png": "🖼️",
+            ".jpg": "🖼️",
+            ".jpeg": "🖼️",
+            ".json": "📋",
+            ".html": "🌐",
         }
-        icon = icons.get(ext, '📎')
+        icon = icons.get(ext, "📎")
 
         # Icon and filename
         left_frame = ctk.CTkFrame(item_frame, fg_color="transparent")
         left_frame.pack(side="left", padx=10, pady=8)
 
-        ctk.CTkLabel(
-            left_frame, text=icon, font=ctk.CTkFont(size=24)
-        ).pack(side="left", padx=(0, 10))
+        ctk.CTkLabel(left_frame, text=icon, font=ctk.CTkFont(size=24)).pack(
+            side="left", padx=(0, 10)
+        )
 
         text_frame = ctk.CTkFrame(left_frame, fg_color="transparent")
         text_frame.pack(side="left")
 
         ctk.CTkLabel(
             text_frame,
-            text=file_info['filename'],
+            text=file_info["filename"],
             font=ctk.CTkFont(size=12, weight="bold"),
-            anchor="w"
+            anchor="w",
         ).pack(fill="x")
 
-        size_mb = file_info['size'] / (1024 * 1024)
+        size_mb = file_info["size"] / (1024 * 1024)
         size_str = f"{size_mb:.2f} MB" if size_mb > 1 else f"{file_info['size']} bytes"
 
         ctk.CTkLabel(
@@ -221,33 +269,28 @@ class FileDownloadManager(ctk.CTkToplevel):
             text=f"{file_info['mime_type']} • {size_str}",
             font=ctk.CTkFont(size=10),
             text_color=("gray60", "gray40"),
-            anchor="w"
+            anchor="w",
         ).pack(fill="x")
 
         # Download button
         ctk.CTkButton(
             item_frame,
             text="⬇️ Download",
-            width=100, height=32,
+            width=100,
+            height=32,
             command=lambda f=file_info: self._download_file(f),
             fg_color=("#50fa7b", "#40c969"),
             hover_color=("#40c969", "#30b959"),
-            text_color=("#000000", "#000000")
+            text_color=("#000000", "#000000"),
         ).pack(side="right", padx=10, pady=8)
 
     def _download_file(self, file_info: dict):
         """Handle file download."""
         destination = self.on_download(file_info)
         if destination:
-            messagebox.showinfo(
-                "Download Complete",
-                f"File saved to:\n{destination}"
-            )
+            messagebox.showinfo("Download Complete", f"File saved to:\n{destination}")
         else:
-            messagebox.showwarning(
-                "Download Cancelled",
-                "File download was cancelled."
-            )
+            messagebox.showwarning("Download Cancelled", "File download was cancelled.")
 
     def _close(self):
         """Close the download manager."""
@@ -256,10 +299,21 @@ class FileDownloadManager(ctk.CTkToplevel):
 
 
 class ChatUI(Observer):
-    def __init__(self, root: ctk.CTk, on_send, on_clear, on_load_files,
-                 on_new_chat, on_select_chat, on_delete_chat, skills_manager=None,
-                 on_skill_toggle=None, on_open_model_catalog=None, model_manager=None,
-                 on_stop=None):
+    def __init__(
+        self,
+        root: ctk.CTk,
+        on_send,
+        on_clear,
+        on_load_files,
+        on_new_chat,
+        on_select_chat,
+        on_delete_chat,
+        skills_manager=None,
+        on_skill_toggle=None,
+        on_open_model_catalog=None,
+        model_manager=None,
+        on_stop=None,
+    ):
         self.root = root
         self.on_send = on_send
         self.on_stop = on_stop
@@ -282,6 +336,7 @@ class ChatUI(Observer):
 
         # Skills management
         from skills_manager import SkillsManager
+
         self.skills_manager = skills_manager if skills_manager else SkillsManager()
         self._skills_window = None
         self.is_generating = False
@@ -312,8 +367,10 @@ class ChatUI(Observer):
 
     def _create_widgets(self):
         self.sidebar = Sidebar(
-            self.root, on_new=self.on_new_chat,
-            on_select=self.on_select_chat, on_delete=self.on_delete_chat
+            self.root,
+            on_new=self.on_new_chat,
+            on_select=self.on_select_chat,
+            on_delete=self.on_delete_chat,
         )
         self.sidebar.grid(row=0, column=0, sticky="nsew")
 
@@ -325,8 +382,11 @@ class ChatUI(Observer):
         header = ctk.CTkFrame(main_frame, fg_color="transparent")
         header.grid(row=0, column=0, sticky="ew", padx=10, pady=(10, 5))
 
-        ctk.CTkLabel(header, text=f"🤖 {config.APP_NAME}",
-                     font=ctk.CTkFont(family="Arial", size=24, weight="bold")).pack(side="left")
+        ctk.CTkLabel(
+            header,
+            text=f"🤖 {config.APP_NAME}",
+            font=ctk.CTkFont(family="Arial", size=24, weight="bold"),
+        ).pack(side="left")
 
         # Model indicator - shows current active model
         model_info_frame = ctk.CTkFrame(header, fg_color="transparent")
@@ -336,54 +396,87 @@ class ChatUI(Observer):
             model_info_frame,
             text="🔷 Loading...",
             font=ctk.CTkFont(size=11, weight="bold"),
-            text_color=("#4a9eff", "#3b7ac7")
+            text_color=("#4a9eff", "#3b7ac7"),
         )
         self.model_label.pack(side="right", padx=(0, 15))
 
-        self.status = ctk.CTkLabel(header, text="⏳ Ready",
-                                   font=ctk.CTkFont(size=11), text_color=("#888888", "#888888"))
+        self.status = ctk.CTkLabel(
+            header,
+            text="⏳ Ready",
+            font=ctk.CTkFont(size=11),
+            text_color=("#888888", "#888888"),
+        )
         self.status.pack(side="right")
 
         toolbar = ctk.CTkFrame(main_frame, fg_color="transparent")
         toolbar.grid(row=1, column=0, sticky="ew", padx=10, pady=5)
 
         ctk.CTkButton(
-            toolbar, text="📁 Load Files", command=self._load_files,
-            width=120, height=32, corner_radius=8,
+            toolbar,
+            text="📁 Load Files",
+            command=self._load_files,
+            width=120,
+            height=32,
+            corner_radius=8,
             font=ctk.CTkFont(size=12, weight="bold"),
-            fg_color=("#4a9eff", "#3b7ac7"), hover_color=("#3b7ac7", "#2d5f9e")
+            fg_color=("#4a9eff", "#3b7ac7"),
+            hover_color=("#3b7ac7", "#2d5f9e"),
         ).pack(side="left", padx=(0, 10))
 
         ctk.CTkButton(
-            toolbar, text="🗑️ Clear", command=self.on_clear,
-            width=100, height=32, corner_radius=8,
+            toolbar,
+            text="🗑️ Clear",
+            command=self.on_clear,
+            width=100,
+            height=32,
+            corner_radius=8,
             font=ctk.CTkFont(size=12, weight="bold"),
-            fg_color=("#ff5555", "#cc4444"), hover_color=("#ff7777", "#dd5555")
+            fg_color=("#ff5555", "#cc4444"),
+            hover_color=("#ff7777", "#dd5555"),
         ).pack(side="left", padx=(0, 10))
 
         ctk.CTkButton(
-            toolbar, text="🎯 Skills", command=self._open_skills_window,
-            width=100, height=32, corner_radius=8,
+            toolbar,
+            text="🎯 Skills",
+            command=self._open_skills_window,
+            width=100,
+            height=32,
+            corner_radius=8,
             font=ctk.CTkFont(size=12, weight="bold"),
-            fg_color=("#9b59b6", "#7d3c98"), hover_color=("#8e44ad", "#6c3483")
+            fg_color=("#9b59b6", "#7d3c98"),
+            hover_color=("#8e44ad", "#6c3483"),
         ).pack(side="left", padx=(0, 10))
 
         ctk.CTkButton(
-            toolbar, text="🤖 Models", command=self._open_model_catalog,
-            width=100, height=32, corner_radius=8,
+            toolbar,
+            text="🤖 Models",
+            command=self._open_model_catalog,
+            width=100,
+            height=32,
+            corner_radius=8,
             font=ctk.CTkFont(size=12, weight="bold"),
-            fg_color=("#e67e22", "#d35400"), hover_color=("#d35400", "#ba4a00")
+            fg_color=("#e67e22", "#d35400"),
+            hover_color=("#d35400", "#ba4a00"),
         ).pack(side="left", padx=(0, 10))
 
         ctk.CTkButton(
-            toolbar, text="🧠 RAG", command=self._open_rag_config,
-            width=80, height=32, corner_radius=8,
+            toolbar,
+            text="🧠 RAG",
+            command=self._open_rag_config,
+            width=80,
+            height=32,
+            corner_radius=8,
             font=ctk.CTkFont(size=12, weight="bold"),
-            fg_color=("#bd93f9", "#9b59b6"), hover_color=("#9b59b6", "#8e44ad")
+            fg_color=("#bd93f9", "#9b59b6"),
+            hover_color=("#9b59b6", "#8e44ad"),
         ).pack(side="left")
 
-        self.doc_info = ctk.CTkLabel(toolbar, text="📚 No documents",
-                                     font=ctk.CTkFont(size=11), text_color=("#888888", "#888888"))
+        self.doc_info = ctk.CTkLabel(
+            toolbar,
+            text="📚 No documents",
+            font=ctk.CTkFont(size=11),
+            text_color=("#888888", "#888888"),
+        )
         self.doc_info.pack(side="right", padx=10)
 
         chat_container = ctk.CTkFrame(main_frame, corner_radius=10)
@@ -392,10 +485,12 @@ class ChatUI(Observer):
         chat_container.grid_columnconfigure(0, weight=1)
 
         self.chat = ctk.CTkTextbox(
-            chat_container, wrap="word",
-            font=ctk.CTkFont(family="Consolas", size=12), corner_radius=10,
+            chat_container,
+            wrap="word",
+            font=ctk.CTkFont(family="Consolas", size=12),
+            corner_radius=10,
             fg_color=("#1e1e2e", "#16213e"),
-            scrollbar_button_color=("#4a9eff", "#3b7ac7")
+            scrollbar_button_color=("#4a9eff", "#3b7ac7"),
         )
         self.chat.grid(row=0, column=0, sticky="nsew", padx=2, pady=2)
 
@@ -407,21 +502,29 @@ class ChatUI(Observer):
         input_frame.grid_columnconfigure(0, weight=1)
 
         self.input = ctk.CTkTextbox(
-            input_frame, height=60,
-            font=ctk.CTkFont(family="Consolas", size=12), corner_radius=10,
-            border_width=2, border_color=("#4a9eff", "#3b7ac7"),
-            fg_color=("#1e1e2e", "#16213e")
+            input_frame,
+            height=60,
+            font=ctk.CTkFont(family="Consolas", size=12),
+            corner_radius=10,
+            border_width=2,
+            border_color=("#4a9eff", "#3b7ac7"),
+            fg_color=("#1e1e2e", "#16213e"),
         )
         self.input.grid(row=0, column=0, sticky="ew", padx=(0, 10))
         self.input.bind("<Return>", self._on_enter)
         self.input.bind("<Shift-Return>", lambda e: None)
 
         self.send_btn = ctk.CTkButton(
-            input_frame, text="Send ➤", command=self._send,
-            width=90, height=60, corner_radius=10,
+            input_frame,
+            text="Send ➤",
+            command=self._send,
+            width=90,
+            height=60,
+            corner_radius=10,
             font=ctk.CTkFont(size=13, weight="bold"),
-            fg_color=("#50fa7b", "#40c969"), hover_color=("#40c969", "#30b959"),
-            text_color=("#000000", "#000000")
+            fg_color=("#50fa7b", "#40c969"),
+            hover_color=("#40c969", "#30b959"),
+            text_color=("#000000", "#000000"),
         )
         self.send_btn.grid(row=0, column=1)
 
@@ -443,7 +546,9 @@ class ChatUI(Observer):
         Args:
             is_generating: True to show stop button, False to show send button
         """
-        print(f"[UI] set_generating_state({is_generating}) - current state: {self.is_generating}")
+        print(
+            f"[UI] set_generating_state({is_generating}) - current state: {self.is_generating}"
+        )
         self.is_generating = is_generating
         try:
             if is_generating:
@@ -452,7 +557,7 @@ class ChatUI(Observer):
                     fg_color=("#ff5555", "#cc4444"),
                     hover_color=("#cc4444", "#aa3333"),
                     command=self._stop_generation,
-                    state="normal"
+                    state="normal",
                 )
                 print(f"[UI] Button changed to: Stop")
             else:
@@ -461,7 +566,7 @@ class ChatUI(Observer):
                     fg_color=("#50fa7b", "#40c969"),
                     hover_color=("#40c969", "#30b959"),
                     command=self._send,
-                    state="normal"
+                    state="normal",
                 )
                 print(f"[UI] Button changed to: Send")
         except Exception as e:
@@ -482,17 +587,21 @@ class ChatUI(Observer):
 
     def _load_files(self):
         files = filedialog.askopenfilenames(
-            parent=self.root, title="Select documents",
+            parent=self.root,
+            title="Select documents",
             filetypes=[
-                ("All supported", "*.txt *.md *.pdf *.xlsx *.xls *.pptx *.ppt *.docx *.doc "
-                 "*.py *.js *.json *.csv *.xml *.yaml *.yml *.html *.css "
-                 "*.png *.jpg *.jpeg *.tiff *.bmp"),
+                (
+                    "All supported",
+                    "*.txt *.md *.pdf *.xlsx *.xls *.pptx *.ppt *.docx *.doc "
+                    "*.py *.js *.json *.csv *.xml *.yaml *.yml *.html *.css "
+                    "*.png *.jpg *.jpeg *.tiff *.bmp",
+                ),
                 ("Documents", "*.txt *.md *.pdf *.docx *.doc"),
                 ("Spreadsheets", "*.xlsx *.xls *.csv"),
                 ("Presentations", "*.pptx *.ppt"),
                 ("Images (OCR)", "*.png *.jpg *.jpeg *.tiff *.bmp"),
-                ("All files", "*.*")
-            ]
+                ("All files", "*.*"),
+            ],
         )
         if files:
             self.on_load_files(files)
@@ -500,9 +609,7 @@ class ChatUI(Observer):
     def _open_skills_window(self):
         """Open the skills management window - single instance."""
         SkillsWindow(
-            self.root,
-            self.skills_manager,
-            on_skill_toggle=self._on_skill_toggle
+            self.root, self.skills_manager, on_skill_toggle=self._on_skill_toggle
         )
 
     def _open_model_catalog(self):
@@ -544,10 +651,13 @@ class ChatUI(Observer):
             display_name = model_id.replace("-", " ").replace("_", " ").title()
             # Try to extract size
             import re
-            size_match = re.search(r'(\d+\.?\d*)[bB]', model_id)
+
+            size_match = re.search(r"(\d+\.?\d*)[bB]", model_id)
             if size_match:
                 size = size_match.group(1)
-                display_name = re.sub(r'(\d+\.?\d*)[bB]', f'{size}B', display_name, count=1)
+                display_name = re.sub(
+                    r"(\d+\.?\d*)[bB]", f"{size}B", display_name, count=1
+                )
 
         # Shorten if too long
         if len(display_name) > 35:
@@ -559,25 +669,27 @@ class ChatUI(Observer):
         if count == 0:
             text, color = "📚 No documents", ("#888888", "#888888")
         else:
-            text, color = f"📚 {count} doc{'s' if count > 1 else ''}", ("#50fa7b", "#50fa7b")
+            text, color = f"📚 {count} doc{'s' if count > 1 else ''}", (
+                "#50fa7b",
+                "#50fa7b",
+            )
         self.doc_info.configure(text=text, text_color=color)
 
     def add_message(self, sender: str, text: str, tag: str = ""):
         if self.chat.get("0.0", "end").strip():
-            self.chat.insert("end", "\n")
+            self.chat.insert("end", "\n\n")
 
         # Insert sender
         self.chat.insert("end", f"{sender}:\n")
 
-        # Insert content with markdown formatting for code blocks
+        # Insert content with markdown formatting
         formatted_text = self._format_markdown(text)
         self.chat.insert("end", formatted_text)
 
-        self.chat.insert("end", "\n")
         self.chat.see("end")
 
     def stream(self, text: str):
-        # For streaming, we just append text (markdown will be applied after completion)
+        # Stream text as-is, markdown will be applied after completion
         self.chat.insert("end", text)
         self.chat.see("end")
 
@@ -592,19 +704,29 @@ class ChatUI(Observer):
             if last_assistant_pos == -1:
                 return
 
+            # Get everything before "Assistant:"
+            before_assistant = content[:last_assistant_pos]
+
             # Get the text after the last "Assistant:" marker
-            text_after_assistant = content[last_assistant_pos + len("Assistant:\n"):]
+            text_after_assistant = content[last_assistant_pos + len("Assistant:\n") :]
+
+            # Strip trailing newlines from the response
+            text_after_assistant = text_after_assistant.rstrip("\n")
 
             # Format with markdown
             formatted = self._format_markdown(text_after_assistant)
 
-            # If formatting changed the text, replace it
-            if formatted != text_after_assistant:
-                # Calculate line number for deletion (1-indexed)
-                lines_before = content[:last_assistant_pos].count('\n') + 1
-                self.chat.delete(f"{lines_before}.0", "end")
-                self.chat.insert("end", formatted)
-                self.chat.see("end")
+            # Calculate the line number where "Assistant:" appears
+            line_num = before_assistant.count("\n") + 1
+
+            # Delete everything from the start of assistant message
+            self.chat.delete(f"{line_num}.0", "end")
+
+            # Re-insert with proper formatting
+            self.chat.insert("end", "Assistant:\n")
+            self.chat.insert("end", formatted)
+            self.chat.insert("end", "\n\n")
+            self.chat.see("end")
         except Exception as e:
             print(f"[UI] Error applying markdown: {e}")
 
@@ -620,7 +742,10 @@ class ChatUI(Observer):
         else:
             # Only set generating state if we're not switching models
             # This prevents confusion between generation and model switching
-            if hasattr(self, 'is_generating') and not (hasattr(self.root, '_is_switching_model') and self.root._is_switching_model):
+            if hasattr(self, "is_generating") and not (
+                hasattr(self.root, "_is_switching_model")
+                and self.root._is_switching_model
+            ):
                 self.set_generating_state(self.is_generating)
             else:
                 self.set_generating_state(False)
@@ -638,22 +763,50 @@ class ChatUI(Observer):
             self.add_message(role, msg["content"], msg["role"])
 
     def _format_markdown(self, text: str) -> str:
-        """Format markdown text with visual styling for code blocks."""
+        """Simple markdown formatting - only code blocks get special treatment."""
         import re
 
-        # Pattern for code blocks: ```language\ncode\n```
-        code_pattern = re.compile(r'```(\w*)\n(.*?)\n```', re.DOTALL)
+        result = text
 
-        def replace_code_block(match):
+        # Code blocks with nice visual separator
+        def format_code_block(match):
             lang = match.group(1)
             code = match.group(2)
-            # Create a nice visual box for the code
-            lines = code.split('\n')
-            return f"\n┌─ {'Code' if not lang else lang} {'─' * (50 - len(lang))}\n│\n" + \
-                   "\n".join("│ " + line for line in lines) + \
-                   "\n│\n└" + ("─" * 55) + "┘\n"
+            label = f" {lang.upper()} " if lang else " CODE "
+            lines = code.split("\n")
+            output = [f"───{label}──────────────────────────────────────"]
+            for i, line in enumerate(lines, 1):
+                output.append(f"{i:3}: {line}" if line.strip() else "     ")
+            output.append("─────────────────────────────────────────────")
+            return "\n".join(output)
 
-        result = code_pattern.sub(replace_code_block, text)
+        # Match ```lang\ncode\n```
+        code_pattern = re.compile(r"```(\w*)\n(.*?)\n```", re.DOTALL)
+        result = code_pattern.sub(format_code_block, result)
+
+        # Match '''lang\ncode\n'''
+        quote_pattern = re.compile(r"'''(\w*)\n(.*?)\n'''", re.DOTALL)
+        result = quote_pattern.sub(format_code_block, result)
+
+        # Inline code
+        result = re.sub(r"`([^`]+)`", r"[\1]", result)
+
+        # Headers - just add newline and make them stand out
+        result = re.sub(r"^#####\s+(.+)$", r"##### \1", result, flags=re.MULTILINE)
+        result = re.sub(r"^####\s+(.+)$", r"#### \1", result, flags=re.MULTILINE)
+        result = re.sub(
+            r"^###\s+(.+)$", r"### \n─── \1 ───", result, flags=re.MULTILINE
+        )
+        result = re.sub(r"^##\s+(.+)$", r"## \n═══ \1 ═══", result, flags=re.MULTILINE)
+        result = re.sub(r"^#\s+(.+)$", r"# \n▓▓▓ \1 ▓▓▓", result, flags=re.MULTILINE)
+
+        # Bold/italic - keep simple
+        result = re.sub(r"\*\*([^*]+)\*\*", r"\1", result)  # Just remove markers
+        result = re.sub(r"\*([^*]+)\*", r"\1", result)
+
+        # Lists - keep standard
+        result = re.sub(r"^[\-\*]\s+(.+)$", r"• \1", result, flags=re.MULTILINE)
+
         return result
 
     def prompt_file_save(self, filename: str, default_name: str) -> str:
@@ -672,7 +825,7 @@ class ChatUI(Observer):
                 ("PowerPoint files", "*.pptx"),
                 ("PNG images", "*.png"),
                 ("Text files", "*.txt"),
-            ]
+            ],
         )
         return filepath
 
@@ -697,10 +850,13 @@ class ChatUI(Observer):
             self._code_executor = executor
 
             # Add download prompt
-            self.add_message("System",
-                f"\n💾 {len(result.files_created)} file(s) ready for download!")
-            self.add_message("System",
-                "Click 'Download Files' to save them to your computer.")
+            self.add_message(
+                "System",
+                f"\n💾 {len(result.files_created)} file(s) ready for download!",
+            )
+            self.add_message(
+                "System", "Click 'Download Files' to save them to your computer."
+            )
 
             # Show download button
             self._show_download_button()
@@ -722,20 +878,20 @@ class ChatUI(Observer):
             """Handle file download."""
             from tkinter import filedialog
 
-            ext = os.path.splitext(file_info['filename'])[1]
+            ext = os.path.splitext(file_info["filename"])[1]
             filepath = filedialog.asksaveasfilename(
                 title=f"Save {file_info['filename']}",
                 defaultextension=ext,
-                initialfile=file_info['filename'],
+                initialfile=file_info["filename"],
                 filetypes=[
                     ("All files", "*.*"),
                     (f"{file_info['filename']} files", f"*{ext}"),
-                ]
+                ],
             )
 
             if filepath:
                 if self._code_executor and self._code_executor.save_file_to(
-                    file_info['filename'], filepath
+                    file_info["filename"], filepath
                 ):
                     return filepath
             return None
@@ -749,12 +905,7 @@ class ChatUI(Observer):
             self._pending_files = []
             self.add_message("System", "🗑️ Temporary files cleaned up.")
 
-        FileDownloadManager(
-            self.root,
-            self._pending_files,
-            on_download,
-            on_close
-        )
+        FileDownloadManager(self.root, self._pending_files, on_download, on_close)
 
     def set_code_executor(self, executor):
         """Set the current code executor for file management."""
@@ -767,13 +918,14 @@ class ChatUI(Observer):
     def get_enabled_skills(self):
         """Get list of enabled skill IDs."""
         return [
-            skill_id for skill_id, skill in self.skills_manager.skills.items()
+            skill_id
+            for skill_id, skill in self.skills_manager.skills.items()
             if skill.enabled
         ]
 
     def _open_rag_config(self):
         """Open RAG configuration window."""
-        if hasattr(self, '_rag_config_window') and self._rag_config_window:
+        if hasattr(self, "_rag_config_window") and self._rag_config_window:
             try:
                 # Check if window still exists
                 if self._rag_config_window.winfo_exists():
@@ -785,25 +937,25 @@ class ChatUI(Observer):
 
         # Create new window - access llm through root
         rag_instance = None
-        if hasattr(self.root, 'llm') and self.root.llm.rag:
+        if hasattr(self.root, "llm") and self.root.llm.rag:
             rag_instance = self.root.llm.rag
 
-        self._rag_config_window = RAGConfigWindow(
-            self.root,
-            rag_instance,
-            self
-        )
+        self._rag_config_window = RAGConfigWindow(self.root, rag_instance, self)
 
     def update_doc_info(self):
         """Update document information display."""
-        if hasattr(self, 'doc_info'):
-            if hasattr(self.llm, 'rag') and self.llm.rag:
+        if hasattr(self, "doc_info"):
+            if hasattr(self.llm, "rag") and self.llm.rag:
                 try:
                     docs = self.llm.rag.get_conversation_documents(self.conversation_id)
                     doc_count = len(docs)
                     # For now, show total chunks across all conversations
-                    total_chunks = sum(len(chunks) for chunks in self.llm.rag.chunks.values())
-                    self.doc_info.configure(text=f"📚 {doc_count} docs, {total_chunks} chunks")
+                    total_chunks = sum(
+                        len(chunks) for chunks in self.llm.rag.chunks.values()
+                    )
+                    self.doc_info.configure(
+                        text=f"📚 {doc_count} docs, {total_chunks} chunks"
+                    )
                 except Exception as e:
                     print(f"[UI] Error updating doc info: {e}")
                     self.doc_info.configure(text="📚 Error loading info")
@@ -811,31 +963,8 @@ class ChatUI(Observer):
                 self.doc_info.configure(text="📚 No documents")
 
     def show_response_suggestions(self, question: str, response: str):
-        """Afficher des suggestions lorsque la réponse est insuffisante."""
-        # Traiter la réponse avec le handler
-        result = self.response_handler.process_response(question, response, {
-            "conversation_id": self.conversation_id,
-            "has_rag": False  # RAG status check removed - ChatUI doesn't have llm reference
-        })
-
-        # Si la réponse est insuffisante, afficher des suggestions
-        if result['is_insufficient']:
-            suggestions_text = "\n\nSuggestions pour obtenir de meilleures reponses:\n"
-
-            # Ajouter les suggestions du handler
-            if result['suggestions']:
-                for key, suggestion in result['suggestions'].items():
-                    suggestions_text += f"• {suggestion}\n"
-
-            
-            # Ajouter des questions de suivi
-            if result['follow_ups']:
-                suggestions_text += f"\n\nQuestions de suivi:\n"
-                for follow_up in result['follow_ups']:
-                    suggestions_text += f"• {follow_up}\n"
-
-            # Insérer les suggestions dans le chat
-            self.add_message("Assistant", suggestions_text)
+        """Suggestions feature disabled - no longer used."""
+        pass
 
     def set_conversation_for_response_handler(self, conversation_id: str):
         """Définir l'ID de conversation pour le handler."""
@@ -846,6 +975,7 @@ class ChatUI(Observer):
 def format_code_output(result) -> str:
     """Format execution result for display (import from code_executor)."""
     from code_executor import format_code_output as _format
+
     return _format(result)
 
 
@@ -898,11 +1028,19 @@ class SkillsWindow(ctk.CTkToplevel):
         title_bar.grid(row=0, column=0, sticky="ew", padx=5, pady=(5, 0))
         title_bar.columnconfigure(1, weight=1)
 
-        ctk.CTkLabel(title_bar, text="🎯 Skills", font=ctk.CTkFont(size=18, weight="bold")).grid(row=0, column=0, padx=15, pady=10)
+        ctk.CTkLabel(
+            title_bar, text="🎯 Skills", font=ctk.CTkFont(size=18, weight="bold")
+        ).grid(row=0, column=0, padx=15, pady=10)
 
         # Close button
-        ctk.CTkButton(title_bar, text="✕", width=40, height=30, command=self._close,
-                      fg_color=("#ff5555", "#cc4444")).grid(row=0, column=2, padx=10, pady=8)
+        ctk.CTkButton(
+            title_bar,
+            text="✕",
+            width=40,
+            height=30,
+            command=self._close,
+            fg_color=("#ff5555", "#cc4444"),
+        ).grid(row=0, column=2, padx=10, pady=8)
 
         # Skills list
         self.skills_frame = ctk.CTkScrollableFrame(main, fg_color="transparent")
@@ -916,16 +1054,24 @@ class SkillsWindow(ctk.CTkToplevel):
         bottom = ctk.CTkFrame(main, height=60, fg_color=("#252535", "#1a1a25"))
         bottom.grid(row=2, column=0, sticky="ew", padx=5, pady=(0, 5))
 
-        ctk.CTkButton(bottom, text="➕ Add Skill", width=130, height=40,
-                      font=ctk.CTkFont(size=12, weight="bold"),
-                      fg_color=("#50fa7b", "#40c969"),
-                      hover_color=("#40c969", "#30b959"),
-                      text_color=("#000000", "#000000"),
-                      corner_radius=8,
-                      command=self._add_skill).grid(row=0, column=0, padx=15, pady=10)
+        ctk.CTkButton(
+            bottom,
+            text="➕ Add Skill",
+            width=130,
+            height=40,
+            font=ctk.CTkFont(size=12, weight="bold"),
+            fg_color=("#50fa7b", "#40c969"),
+            hover_color=("#40c969", "#30b959"),
+            text_color=("#000000", "#000000"),
+            corner_radius=8,
+            command=self._add_skill,
+        ).grid(row=0, column=0, padx=15, pady=10)
 
-        count_label = ctk.CTkLabel(bottom, text=f"{len(self.skills_manager.skills)} skills",
-                                   font=ctk.CTkFont(size=11))
+        count_label = ctk.CTkLabel(
+            bottom,
+            text=f"{len(self.skills_manager.skills)} skills",
+            font=ctk.CTkFont(size=11),
+        )
         count_label.grid(row=0, column=1, padx=15, pady=10)
 
     def _add_skill_row(self, parent, skill):
@@ -936,8 +1082,12 @@ class SkillsWindow(ctk.CTkToplevel):
         left_content = ctk.CTkFrame(row, fg_color="transparent")
         left_content.pack(side="left", fill="both", expand=True)
 
-        ctk.CTkLabel(left_content, text=skill.icon, font=ctk.CTkFont(size=16)).pack(side="left", padx=10, pady=8)
-        ctk.CTkLabel(left_content, text=skill.name, font=ctk.CTkFont(size=12)).pack(side="left", padx=5, pady=8)
+        ctk.CTkLabel(left_content, text=skill.icon, font=ctk.CTkFont(size=16)).pack(
+            side="left", padx=10, pady=8
+        )
+        ctk.CTkLabel(left_content, text=skill.name, font=ctk.CTkFont(size=12)).pack(
+            side="left", padx=5, pady=8
+        )
 
         # Right side: buttons and switch
         right_content = ctk.CTkFrame(row, fg_color="transparent")
@@ -953,7 +1103,7 @@ class SkillsWindow(ctk.CTkToplevel):
             fg_color=("#4a9eff", "#3b7ac7"),
             hover_color=("#3b7ac7", "#2d5f9e"),
             font=ctk.CTkFont(size=12),
-            command=lambda s=skill: self._view_edit_skill(s)
+            command=lambda s=skill: self._view_edit_skill(s),
         ).pack(side="right", padx=(0, 8), pady=8)
 
         # Enable/Disable switch
@@ -961,7 +1111,9 @@ class SkillsWindow(ctk.CTkToplevel):
             right_content,
             text="",
             width=40,
-            progress_color=("#50fa7b", "#40c969") if skill.enabled else ("#4a9eff", "#3b7ac7")
+            progress_color=(
+                ("#50fa7b", "#40c969") if skill.enabled else ("#4a9eff", "#3b7ac7")
+            ),
         )
         switch.pack(side="right", padx=5, pady=8)
         if skill.enabled:
@@ -980,18 +1132,13 @@ class SkillsWindow(ctk.CTkToplevel):
         from skills_manager import CreateSkillDialog
 
         CreateSkillDialog(
-            self,
-            self.skills_manager,
-            on_skill_created=self._refresh_skills
+            self, self.skills_manager, on_skill_created=self._refresh_skills
         )
 
     def _view_edit_skill(self, skill):
         """Open the view/edit skill dialog."""
         ViewSkillDialog(
-            self,
-            self.skills_manager,
-            skill,
-            on_skill_updated=self._refresh_skills
+            self, self.skills_manager, skill, on_skill_updated=self._refresh_skills
         )
 
     def _refresh_skills(self):
@@ -1010,7 +1157,7 @@ class SkillsWindow(ctk.CTkToplevel):
     def _update_count_label(self, widget):
         """Recursively find and update the count label."""
         try:
-            if hasattr(widget, 'cget') and 'skills' in str(widget.cget('text')):
+            if hasattr(widget, "cget") and "skills" in str(widget.cget("text")):
                 widget.configure(text=f"{len(self.skills_manager.skills)} skills")
                 return
         except:
@@ -1033,11 +1180,15 @@ class ViewSkillDialog(ctk.CTkToplevel):
         self.selected_image_path = skill.image_path
 
         # Load existing skill data
-        self.skill_instructions = self.skills_manager.get_skill_instructions(skill.id) or ""
+        self.skill_instructions = (
+            self.skills_manager.get_skill_instructions(skill.id) or ""
+        )
         self.raw_content = self.skills_manager.get_skill_content(skill.id) or ""
 
         # Debug: Log the loaded instructions
-        print(f"[Debug] Loading instructions for {skill.id}: {repr(self.skill_instructions)}")
+        print(
+            f"[Debug] Loading instructions for {skill.id}: {repr(self.skill_instructions)}"
+        )
 
         self.title(f"✏️ Edit: {skill.name}")
         self.geometry("750x750")
@@ -1059,6 +1210,7 @@ class ViewSkillDialog(ctk.CTkToplevel):
     def _create_skill_copy(self, skill):
         """Create a copy of the skill for reset functionality."""
         from dataclasses import replace
+
         return replace(skill)
 
     def _center_window(self):
@@ -1131,9 +1283,7 @@ class ViewSkillDialog(ctk.CTkToplevel):
 
         # Skill icon and name
         icon_label = ctk.CTkLabel(
-            title_row,
-            text=self.skill.icon,
-            font=ctk.CTkFont(size=28)
+            title_row, text=self.skill.icon, font=ctk.CTkFont(size=28)
         )
         icon_label.pack(side="left", padx=(0, 10))
 
@@ -1141,7 +1291,7 @@ class ViewSkillDialog(ctk.CTkToplevel):
             title_row,
             text=self.skill.name,
             font=ctk.CTkFont(size=22, weight="bold"),
-            text_color="#4a9eff"
+            text_color="#4a9eff",
         )
         name_label.pack(side="left")
 
@@ -1156,7 +1306,7 @@ class ViewSkillDialog(ctk.CTkToplevel):
             fg_color="#2a2a3a",
             corner_radius=5,
             padx=10,
-            pady=3
+            pady=3,
         )
         status_badge.pack(side="right")
 
@@ -1168,7 +1318,7 @@ class ViewSkillDialog(ctk.CTkToplevel):
             id_row,
             text=f"🆔 ID: {self.skill.id}",
             font=ctk.CTkFont(size=11, family="Consolas"),
-            text_color="#888888"
+            text_color="#888888",
         ).pack(side="left", padx=(45, 0))
 
         category_badge = ctk.CTkLabel(
@@ -1179,7 +1329,7 @@ class ViewSkillDialog(ctk.CTkToplevel):
             fg_color="#2a2a3a",
             corner_radius=4,
             padx=8,
-            pady=2
+            pady=2,
         )
         category_badge.pack(side="right")
 
@@ -1199,11 +1349,17 @@ class ViewSkillDialog(ctk.CTkToplevel):
         form.pack(fill="x", pady=(0, 15))
 
         # Form fields
-        self._create_form_field(form, "Skill Name *", "e.g., Image Generator", 15, self.skill.name)
+        self._create_form_field(
+            form, "Skill Name *", "e.g., Image Generator", 15, self.skill.name
+        )
         self.name_entry = self.last_entry
 
         self._create_form_field(
-            form, "Description *", "Brief description of what this skill does", 10, self.skill.description
+            form,
+            "Description *",
+            "Brief description of what this skill does",
+            10,
+            self.skill.description,
         )
         self.desc_entry = self.last_entry
 
@@ -1213,12 +1369,19 @@ class ViewSkillDialog(ctk.CTkToplevel):
             text="Category *",
             font=ctk.CTkFont(size=11, weight="bold"),
             text_color="#ffffff",
-            anchor="w"
+            anchor="w",
         ).pack(fill="x", padx=15, pady=(10, 5))
 
         self.category_combo = ctk.CTkComboBox(
             form,
-            values=["General", "AI", "Documents", "Development", "Visualization", "Tools"],
+            values=[
+                "General",
+                "AI",
+                "Documents",
+                "Development",
+                "Visualization",
+                "Tools",
+            ],
             font=ctk.CTkFont(size=11),
             fg_color="#1e1e2e",
             button_color="#4a9eff",
@@ -1226,7 +1389,7 @@ class ViewSkillDialog(ctk.CTkToplevel):
             dropdown_fg_color="#252535",
             text_color="#ffffff",
             dropdown_text_color="#ffffff",
-            height=36
+            height=36,
         )
         self.category_combo.pack(fill="x", padx=15)
         self.category_combo.set(self.skill.category)
@@ -1247,7 +1410,7 @@ class ViewSkillDialog(ctk.CTkToplevel):
             text="Icon Emoji",
             font=ctk.CTkFont(size=11, weight="bold"),
             text_color="#ffffff",
-            anchor="w"
+            anchor="w",
         ).pack(fill="x", padx=15, pady=(15, 5))
 
         icon_container = ctk.CTkFrame(parent, fg_color="transparent")
@@ -1259,7 +1422,7 @@ class ViewSkillDialog(ctk.CTkToplevel):
             fg_color="#1e1e2e",
             border_color="#3a3a4a",
             text_color="#ffffff",
-            height=36
+            height=36,
         )
         self.icon_entry.pack(side="left", fill="x", expand=True, padx=(0, 10))
         self.icon_entry.insert(0, self.skill.icon)
@@ -1267,7 +1430,23 @@ class ViewSkillDialog(ctk.CTkToplevel):
         icon_picker = ctk.CTkFrame(parent, fg_color="#1e1e2e", corner_radius=8)
         icon_picker.pack(fill="x", padx=15, pady=(5, 0))
 
-        for icon in ["🔧", "🎯", "📝", "🧠", "💻", "🎨", "📊", "🔍", "⚡", "🚀", "🤖", "🔬", "📈", "🎬", "🗨️"]:
+        for icon in [
+            "🔧",
+            "🎯",
+            "📝",
+            "🧠",
+            "💻",
+            "🎨",
+            "📊",
+            "🔍",
+            "⚡",
+            "🚀",
+            "🤖",
+            "🔬",
+            "📈",
+            "🎬",
+            "🗨️",
+        ]:
             ctk.CTkButton(
                 icon_picker,
                 text=icon,
@@ -1288,7 +1467,7 @@ class ViewSkillDialog(ctk.CTkToplevel):
             text="Custom Icon Image",
             font=ctk.CTkFont(size=11, weight="bold"),
             text_color="#ffffff",
-            anchor="w"
+            anchor="w",
         ).pack(fill="x", padx=15, pady=(15, 5))
 
         image_frame = ctk.CTkFrame(parent, fg_color="transparent")
@@ -1308,9 +1487,14 @@ class ViewSkillDialog(ctk.CTkToplevel):
 
         self.image_status = ctk.CTkLabel(
             image_frame,
-            text="Current: " + (Path(self.skill.image_path).name if self.skill.image_path else "No custom image"),
+            text="Current: "
+            + (
+                Path(self.skill.image_path).name
+                if self.skill.image_path
+                else "No custom image"
+            ),
             font=ctk.CTkFont(size=10),
-            text_color="#888888"
+            text_color="#888888",
         )
         self.image_status.pack(side="left", pady=5)
 
@@ -1336,7 +1520,7 @@ class ViewSkillDialog(ctk.CTkToplevel):
             text="Skill Instructions *",
             font=ctk.CTkFont(size=11, weight="bold"),
             text_color="#ffffff",
-            anchor="w"
+            anchor="w",
         ).pack(fill="x", padx=15, pady=(15, 5))
 
         help_text = ctk.CTkLabel(
@@ -1344,7 +1528,7 @@ class ViewSkillDialog(ctk.CTkToplevel):
             text="💡 These are the instructions the AI will follow when this skill is enabled",
             font=ctk.CTkFont(size=9),
             text_color="#888888",
-            anchor="w"
+            anchor="w",
         )
         help_text.pack(fill="x", padx=15, pady=(0, 5))
 
@@ -1358,7 +1542,7 @@ class ViewSkillDialog(ctk.CTkToplevel):
                 fg_color="#2a2a3a",
                 corner_radius=5,
                 padx=10,
-                pady=3
+                pady=3,
             )
             debug_label.pack(fill="x", padx=15, pady=(0, 5))
 
@@ -1398,16 +1582,14 @@ class ViewSkillDialog(ctk.CTkToplevel):
 
         # Icon and name
         ctk.CTkLabel(
-            header_content,
-            text=self.skill.icon,
-            font=ctk.CTkFont(size=24)
+            header_content, text=self.skill.icon, font=ctk.CTkFont(size=24)
         ).pack(side="left", padx=(0, 10))
 
         ctk.CTkLabel(
             header_content,
             text=self.skill.name,
             font=ctk.CTkFont(size=16, weight="bold"),
-            text_color="#ffffff"
+            text_color="#ffffff",
         ).pack(side="left")
 
         # Content
@@ -1419,7 +1601,7 @@ class ViewSkillDialog(ctk.CTkToplevel):
             text="Description:",
             font=ctk.CTkFont(size=11, weight="bold"),
             text_color="#4a9eff",
-            anchor="w"
+            anchor="w",
         ).pack(fill="x", pady=(0, 5))
 
         ctk.CTkLabel(
@@ -1428,7 +1610,7 @@ class ViewSkillDialog(ctk.CTkToplevel):
             font=ctk.CTkFont(size=11),
             text_color="#cccccc",
             anchor="w",
-            wraplength=600
+            wraplength=600,
         ).pack(fill="x", pady=(0, 10))
 
         ctk.CTkLabel(
@@ -1436,7 +1618,7 @@ class ViewSkillDialog(ctk.CTkToplevel):
             text="Category:",
             font=ctk.CTkFont(size=11, weight="bold"),
             text_color="#4a9eff",
-            anchor="w"
+            anchor="w",
         ).pack(fill="x", pady=(0, 5))
 
         ctk.CTkLabel(
@@ -1444,7 +1626,7 @@ class ViewSkillDialog(ctk.CTkToplevel):
             text=self.skill.category,
             font=ctk.CTkFont(size=11),
             text_color="#cccccc",
-            anchor="w"
+            anchor="w",
         ).pack(fill="x", pady=(0, 10))
 
         ctk.CTkLabel(
@@ -1452,7 +1634,7 @@ class ViewSkillDialog(ctk.CTkToplevel):
             text="Instructions Preview:",
             font=ctk.CTkFont(size=11, weight="bold"),
             text_color="#4a9eff",
-            anchor="w"
+            anchor="w",
         ).pack(fill="x", pady=(0, 5))
 
         instructions_preview = ctk.CTkTextbox(
@@ -1472,25 +1654,21 @@ class ViewSkillDialog(ctk.CTkToplevel):
         tab = self.tabview.tab("📄 Raw Content")
 
         # Info bar
-        info_bar = ctk.CTkFrame(
-            tab,
-            fg_color="#2a2a3a",
-            corner_radius=8
-        )
+        info_bar = ctk.CTkFrame(tab, fg_color="#2a2a3a", corner_radius=8)
         info_bar.pack(fill="x", padx=10, pady=(10, 5))
 
         ctk.CTkLabel(
             info_bar,
             text="📄 This is the actual markdown content stored in the skill file",
             font=ctk.CTkFont(size=10),
-            text_color="#888888"
+            text_color="#888888",
         ).pack(side="left", padx=10, pady=8)
 
         ctk.CTkLabel(
             info_bar,
             text=f"{len(self.raw_content)} characters",
             font=ctk.CTkFont(size=10),
-            text_color="#666666"
+            text_color="#666666",
         ).pack(side="right", padx=10, pady=8)
 
         # Raw content viewer
@@ -1555,14 +1733,16 @@ class ViewSkillDialog(ctk.CTkToplevel):
             command=self._update_skill,
         ).pack(side="left", padx=5)
 
-    def _create_form_field(self, parent, label_text, placeholder, top_padding, default_value=""):
+    def _create_form_field(
+        self, parent, label_text, placeholder, top_padding, default_value=""
+    ):
         """Helper to create form labels and entries."""
         ctk.CTkLabel(
             parent,
             text=label_text,
             font=ctk.CTkFont(size=11, weight="bold"),
             text_color="#ffffff",
-            anchor="w"
+            anchor="w",
         ).pack(fill="x", padx=15, pady=(top_padding, 5))
 
         self.last_entry = ctk.CTkEntry(
@@ -1573,7 +1753,7 @@ class ViewSkillDialog(ctk.CTkToplevel):
             border_color="#3a3a4a",
             text_color="#ffffff",
             placeholder_text_color="#666666",
-            height=36
+            height=36,
         )
         self.last_entry.pack(fill="x", padx=15)
         if default_value:
@@ -1609,14 +1789,13 @@ class ViewSkillDialog(ctk.CTkToplevel):
         """Remove the custom image."""
         if messagebox.askyesno("Remove Image", "Remove the custom icon image?"):
             self.selected_image_path = None
-            self.image_status.configure(
-                text="No custom image",
-                text_color="#888888"
-            )
+            self.image_status.configure(text="No custom image", text_color="#888888")
 
     def _reset_changes(self):
         """Reset all fields to original values."""
-        if messagebox.askyesno("Reset Changes", "Reset all fields to their original values?"):
+        if messagebox.askyesno(
+            "Reset Changes", "Reset all fields to their original values?"
+        ):
             self.name_entry.delete(0, "end")
             self.name_entry.insert(0, self.original_skill.name)
 
@@ -1633,8 +1812,13 @@ class ViewSkillDialog(ctk.CTkToplevel):
 
             self.selected_image_path = self.original_skill.image_path
             self.image_status.configure(
-                text="Current: " + (Path(self.original_skill.image_path).name if self.original_skill.image_path else "No custom image"),
-                text_color="#888888"
+                text="Current: "
+                + (
+                    Path(self.original_skill.image_path).name
+                    if self.original_skill.image_path
+                    else "No custom image"
+                ),
+                text_color="#888888",
             )
 
     def _update_skill(self):
@@ -1681,7 +1865,9 @@ class ModelCatalogWindow(ctk.CTkToplevel):
 
     _instance = None
 
-    def __init__(self, parent, model_manager, on_model_select=None, on_model_download=None):
+    def __init__(
+        self, parent, model_manager, on_model_select=None, on_model_download=None
+    ):
         # Close existing if any
         if ModelCatalogWindow._instance:
             try:
@@ -1726,17 +1912,28 @@ class ModelCatalogWindow(ctk.CTkToplevel):
         title_bar.grid(row=0, column=0, sticky="ew", padx=5, pady=(5, 0))
         title_bar.columnconfigure(1, weight=1)
 
-        ctk.CTkLabel(title_bar, text="🤖 Model Catalog",
-                     font=ctk.CTkFont(size=18, weight="bold")).grid(row=0, column=0, padx=15, pady=10)
+        ctk.CTkLabel(
+            title_bar, text="🤖 Model Catalog", font=ctk.CTkFont(size=18, weight="bold")
+        ).grid(row=0, column=0, padx=15, pady=10)
 
         # Refresh button
-        ctk.CTkButton(title_bar, text="🔄 Refresh", width=100,
-                      command=self._load_models,
-                      fg_color=("#4a9eff", "#3b7ac7")).grid(row=0, column=1, padx=5)
+        ctk.CTkButton(
+            title_bar,
+            text="🔄 Refresh",
+            width=100,
+            command=self._load_models,
+            fg_color=("#4a9eff", "#3b7ac7"),
+        ).grid(row=0, column=1, padx=5)
 
         # Close button
-        ctk.CTkButton(title_bar, text="✕", width=40, height=30, command=self._close,
-                      fg_color=("#ff5555", "#cc4444")).grid(row=0, column=2, padx=10, pady=8)
+        ctk.CTkButton(
+            title_bar,
+            text="✕",
+            width=40,
+            height=30,
+            command=self._close,
+            fg_color=("#ff5555", "#cc4444"),
+        ).grid(row=0, column=2, padx=10, pady=8)
 
         # Content frame with tabs
         content = ctk.CTkFrame(main, fg_color="transparent")
@@ -1750,13 +1947,23 @@ class ModelCatalogWindow(ctk.CTkToplevel):
 
         self.tab_var = ctk.StringVar(value="catalog")
 
-        ctk.CTkRadioButton(tab_frame, text="📚 Catalog", variable=self.tab_var,
-                          value="catalog", command=self._switch_tab,
-                          font=ctk.CTkFont(size=13)).pack(side="left", padx=10)
+        ctk.CTkRadioButton(
+            tab_frame,
+            text="📚 Catalog",
+            variable=self.tab_var,
+            value="catalog",
+            command=self._switch_tab,
+            font=ctk.CTkFont(size=13),
+        ).pack(side="left", padx=10)
 
-        ctk.CTkRadioButton(tab_frame, text="💾 Installed", variable=self.tab_var,
-                          value="installed", command=self._switch_tab,
-                          font=ctk.CTkFont(size=13)).pack(side="left", padx=10)
+        ctk.CTkRadioButton(
+            tab_frame,
+            text="💾 Installed",
+            variable=self.tab_var,
+            value="installed",
+            command=self._switch_tab,
+            font=ctk.CTkFont(size=13),
+        ).pack(side="left", padx=10)
 
         # Model list container
         self.model_container = ctk.CTkScrollableFrame(content, fg_color="transparent")
@@ -1787,7 +1994,9 @@ class ModelCatalogWindow(ctk.CTkToplevel):
 
     def _load_catalog(self):
         """Load model catalog."""
-        installed_ids = set(m.model_id for m in self.model_manager.get_installed_models())
+        installed_ids = set(
+            m.model_id for m in self.model_manager.get_installed_models()
+        )
 
         for model in self.model_manager.get_recommended_catalog():
             self._add_catalog_item(model, model.id in installed_ids)
@@ -1802,7 +2011,7 @@ class ModelCatalogWindow(ctk.CTkToplevel):
                 self.model_container,
                 text="No models installed.\nBrowse the catalog to download models.",
                 font=ctk.CTkFont(size=12),
-                text_color=("gray50", "gray50")
+                text_color=("gray50", "gray50"),
             ).pack(pady=40)
             return
 
@@ -1813,9 +2022,7 @@ class ModelCatalogWindow(ctk.CTkToplevel):
     def _add_catalog_item(self, model, is_installed):
         """Add a catalog model item."""
         item = ctk.CTkFrame(
-            self.model_container,
-            fg_color=("#2a2a3a", "#1a1a2a"),
-            corner_radius=10
+            self.model_container, fg_color=("#2a2a3a", "#1a1a2a"), corner_radius=10
         )
         item.pack(fill="x", pady=8)
 
@@ -1828,7 +2035,7 @@ class ModelCatalogWindow(ctk.CTkToplevel):
             left_frame,
             text=f"{model.get_display_name()} • {model.get_size_display()}",
             font=ctk.CTkFont(size=14, weight="bold"),
-            anchor="w"
+            anchor="w",
         )
         name_label.pack(fill="x")
 
@@ -1838,18 +2045,20 @@ class ModelCatalogWindow(ctk.CTkToplevel):
             text=model.description,
             font=ctk.CTkFont(size=11),
             text_color=("gray70", "gray50"),
-            anchor="w"
+            anchor="w",
         )
         desc_label.pack(fill="x", pady=(3, 5))
 
         # Specs
-        specs = f"RAM: {model.get_ram_display()} • Context: {model.context_size:,} tokens"
+        specs = (
+            f"RAM: {model.get_ram_display()} • Context: {model.context_size:,} tokens"
+        )
         specs_label = ctk.CTkLabel(
             left_frame,
             text=specs,
             font=ctk.CTkFont(size=10),
             text_color=("gray60", "gray40"),
-            anchor="w"
+            anchor="w",
         )
         specs_label.pack(fill="x")
 
@@ -1861,7 +2070,7 @@ class ModelCatalogWindow(ctk.CTkToplevel):
                 text=tags_text,
                 font=ctk.CTkFont(size=9),
                 text_color=("#4a9eff", "#3b7ac7"),
-                anchor="w"
+                anchor="w",
             )
             tags_label.pack(fill="x", pady=(3, 0))
 
@@ -1870,8 +2079,10 @@ class ModelCatalogWindow(ctk.CTkToplevel):
         right_frame.pack(side="right", padx=15, pady=10)
 
         # Check if this is the active model
-        active_id = self.model_manager.get_active_model() if self.model_manager else None
-        is_active = (model.id == active_id)
+        active_id = (
+            self.model_manager.get_active_model() if self.model_manager else None
+        )
+        is_active = model.id == active_id
 
         if is_installed:
             if is_active:
@@ -1880,7 +2091,7 @@ class ModelCatalogWindow(ctk.CTkToplevel):
                     right_frame,
                     text="⭐ Active",
                     font=ctk.CTkFont(size=11, weight="bold"),
-                    text_color=("#f1c40f", "#d4ac0d")
+                    text_color=("#f1c40f", "#d4ac0d"),
                 )
                 status_label.pack(pady=5)
             else:
@@ -1891,7 +2102,7 @@ class ModelCatalogWindow(ctk.CTkToplevel):
                     width=110,
                     command=lambda: self._activate_model(model.id),
                     fg_color=("#4a9eff", "#3b7ac7"),
-                    hover_color=("#3b7ac7", "#2d5f9e")
+                    hover_color=("#3b7ac7", "#2d5f9e"),
                 )
                 activate_btn.pack(pady=3)
 
@@ -1901,7 +2112,7 @@ class ModelCatalogWindow(ctk.CTkToplevel):
                     width=110,
                     command=lambda: self._delete_model(model.id),
                     fg_color=("#ff5555", "#cc4444"),
-                    hover_color=("#cc4444", "#aa3333")
+                    hover_color=("#cc4444", "#aa3333"),
                 )
                 delete_btn.pack(pady=3)
         else:
@@ -1911,16 +2122,14 @@ class ModelCatalogWindow(ctk.CTkToplevel):
                 width=110,
                 command=lambda: self._download_model(model),
                 fg_color=("#50fa7b", "#40c969"),
-                hover_color=("#40c969", "#30b959")
+                hover_color=("#40c969", "#30b959"),
             )
             download_btn.pack(pady=5)
 
     def _add_installed_item(self, installed_model, model_info, active_model):
         """Add an installed model item."""
         item = ctk.CTkFrame(
-            self.model_container,
-            fg_color=("#2a2a3a", "#1a1a2a"),
-            corner_radius=10
+            self.model_container, fg_color=("#2a2a3a", "#1a1a2a"), corner_radius=10
         )
         item.pack(fill="x", pady=8)
 
@@ -1944,21 +2153,27 @@ class ModelCatalogWindow(ctk.CTkToplevel):
         name_label = ctk.CTkLabel(
             left_frame,
             text=name,
-            font=ctk.CTkFont(size=14, weight="bold" if installed_model.is_active else "normal"),
-            anchor="w"
+            font=ctk.CTkFont(
+                size=14, weight="bold" if installed_model.is_active else "normal"
+            ),
+            anchor="w",
         )
         name_label.pack(fill="x")
 
         # File info
         size_mb = installed_model.file_size_bytes / (1024 * 1024)
-        size_text = f"{size_mb:.1f} MB" if size_mb >= 1 else f"{installed_model.file_size_bytes} bytes"
+        size_text = (
+            f"{size_mb:.1f} MB"
+            if size_mb >= 1
+            else f"{installed_model.file_size_bytes} bytes"
+        )
 
         info_label = ctk.CTkLabel(
             left_frame,
             text=f"📁 {installed_model.filepath} • {size_text}",
             font=ctk.CTkFont(size=10),
             text_color=("gray60", "gray40"),
-            anchor="w"
+            anchor="w",
         )
         info_label.pack(fill="x")
 
@@ -1972,7 +2187,7 @@ class ModelCatalogWindow(ctk.CTkToplevel):
                 text="⭐ Activate",
                 width=100,
                 command=lambda: self._activate_model(installed_model.model_id),
-                fg_color=("#50fa7b", "#40c969")
+                fg_color=("#50fa7b", "#40c969"),
             )
             activate_btn.pack(pady=3)
 
@@ -1981,7 +2196,7 @@ class ModelCatalogWindow(ctk.CTkToplevel):
                 text="🗑️",
                 width=40,
                 command=lambda: self._delete_model(installed_model.model_id),
-                fg_color=("#ff5555", "#cc4444")
+                fg_color=("#ff5555", "#cc4444"),
             )
             delete_btn.pack(pady=3)
 
@@ -1989,16 +2204,16 @@ class ModelCatalogWindow(ctk.CTkToplevel):
         """Download a model."""
         # Open progress window
         self._download_progress_window = DownloadProgressDialog(
-            self,
-            model,
-            on_close=lambda: self._load_models()
+            self, model, on_close=lambda: self._load_models()
         )
 
         # Start download
         self.model_manager.download_model(
             model.id,
             on_progress=lambda p: self._download_progress_window.update_progress(p),
-            on_complete=lambda success, msg: self._download_progress_window.complete(success, msg)
+            on_complete=lambda success, msg: self._download_progress_window.complete(
+                success, msg
+            ),
         )
 
     def _activate_model(self, model_id):
@@ -2014,13 +2229,13 @@ class ModelCatalogWindow(ctk.CTkToplevel):
             messagebox.showwarning(
                 "Cannot Delete Active Model",
                 "You cannot delete the currently active model.\n\n"
-                "Please activate another model first, then delete this one."
+                "Please activate another model first, then delete this one.",
             )
             return
 
         if messagebox.askyesno(
             "Delete Model",
-            "Are you sure you want to delete this model? This cannot be undone."
+            "Are you sure you want to delete this model? This cannot be undone.",
         ):
             if self.model_manager.delete_model(model_id):
                 messagebox.showinfo("Success", "Model deleted successfully.")
@@ -2056,50 +2271,38 @@ class DownloadProgressDialog(ctk.CTkToplevel):
         ctk.CTkLabel(
             info_frame,
             text=f"Downloading {self.model.get_display_name()}",
-            font=ctk.CTkFont(size=16, weight="bold")
+            font=ctk.CTkFont(size=16, weight="bold"),
         ).pack(pady=10)
 
         ctk.CTkLabel(
             info_frame,
             text=f"Size: {self.model.get_size_display()}",
             font=ctk.CTkFont(size=12),
-            text_color=("gray70", "gray50")
+            text_color=("gray70", "gray50"),
         ).pack()
 
         # Progress bar
         self.progress_bar = ctk.CTkProgressBar(
-            main,
-            width=400,
-            height=20,
-            progress_color=("#50fa7b", "#40c969")
+            main, width=400, height=20, progress_color=("#50fa7b", "#40c969")
         )
         self.progress_bar.set(0)
         self.progress_bar.pack(pady=20)
 
         # Status label
         self.status_label = ctk.CTkLabel(
-            main,
-            text="Initializing...",
-            font=ctk.CTkFont(size=12)
+            main, text="Initializing...", font=ctk.CTkFont(size=12)
         )
         self.status_label.pack()
 
         # Details label
         self.details_label = ctk.CTkLabel(
-            main,
-            text="",
-            font=ctk.CTkFont(size=10),
-            text_color=("gray70", "gray50")
+            main, text="", font=ctk.CTkFont(size=10), text_color=("gray70", "gray50")
         )
         self.details_label.pack(pady=5)
 
         # Close button (disabled initially)
         self.close_btn = ctk.CTkButton(
-            main,
-            text="Close",
-            width=100,
-            command=self._close,
-            state="disabled"
+            main, text="Close", width=100, command=self._close, state="disabled"
         )
         self.close_btn.pack(pady=20)
 
@@ -2110,26 +2313,20 @@ class DownloadProgressDialog(ctk.CTkToplevel):
         downloaded_mb = progress.downloaded_bytes / (1024 * 1024)
         total_mb = progress.total_bytes / (1024 * 1024)
 
-        self.status_label.configure(
-            text=f"Downloading... {progress.percentage:.1f}%"
-        )
-        self.details_label.configure(
-            text=f"{downloaded_mb:.1f} MB / {total_mb:.1f} MB"
-        )
+        self.status_label.configure(text=f"Downloading... {progress.percentage:.1f}%")
+        self.details_label.configure(text=f"{downloaded_mb:.1f} MB / {total_mb:.1f} MB")
 
     def complete(self, success: bool, message: str):
         """Handle download completion."""
         if success:
             self.progress_bar.set(1)
             self.status_label.configure(
-                text="✅ Download Complete!",
-                text_color=("#50fa7b", "#40c969")
+                text="✅ Download Complete!", text_color=("#50fa7b", "#40c969")
             )
         else:
             self.progress_bar.set(0)
             self.status_label.configure(
-                text="❌ Download Failed",
-                text_color=("#ff5555", "#cc4444")
+                text="❌ Download Failed", text_color=("#ff5555", "#cc4444")
             )
             self.details_label.configure(text=message)
 
@@ -2166,7 +2363,7 @@ class RAGConfigWindow(ctk.CTkToplevel):
                 text=f"Error loading RAG configuration:\n{str(e)}",
                 font=ctk.CTkFont(size=12),
                 text_color=("red", "red"),
-                wraplength=600
+                wraplength=600,
             )
             error_label.pack(padx=20, pady=20)
 
@@ -2190,7 +2387,7 @@ class RAGConfigWindow(ctk.CTkToplevel):
             header,
             text="🧠 RAG Configuration",
             font=ctk.CTkFont(size=20, weight="bold"),
-            text_color=("white", "white")
+            text_color=("white", "white"),
         )
         title.pack(padx=10, pady=5)
 
@@ -2231,7 +2428,7 @@ class RAGConfigWindow(ctk.CTkToplevel):
             text="Enable RAG for this conversation",
             variable=self.rag_enabled,
             command=self._toggle_rag,
-            font=ctk.CTkFont(size=12, weight="bold")
+            font=ctk.CTkFont(size=12, weight="bold"),
         )
         enable_check.pack(anchor="w")
 
@@ -2241,7 +2438,7 @@ class RAGConfigWindow(ctk.CTkToplevel):
                 enable_frame,
                 text="RAG is not initialized. Please wait for the model to load first.",
                 font=ctk.CTkFont(size=10),
-                text_color=("#ff6b6b", "#ff5252")
+                text_color=("#ff6b6b", "#ff5252"),
             )
             info_label.pack(anchor="w", padx=(20, 0), pady=(5, 0))
 
@@ -2253,7 +2450,7 @@ class RAGConfigWindow(ctk.CTkToplevel):
             params_frame,
             text="Search Parameters",
             font=ctk.CTkFont(size=14, weight="bold"),
-            text_color=("white", "white")
+            text_color=("white", "white"),
         ).pack(anchor="w", pady=(0, 10))
 
         # Top K
@@ -2264,14 +2461,12 @@ class RAGConfigWindow(ctk.CTkToplevel):
             top_k_frame,
             text="Number of Results (Top K):",
             font=ctk.CTkFont(size=11),
-            anchor="w"
+            anchor="w",
         ).pack(side="left", padx=(0, 10))
 
         self.top_k_var = ctk.IntVar(value=5 if self.rag else 5)
         top_k_label = ctk.CTkLabel(
-            top_k_frame,
-            text=str(self.top_k_var.get()),
-            width=30
+            top_k_frame, text=str(self.top_k_var.get()), width=30
         )
         top_k_label.pack(side="left", padx=(5, 0))
 
@@ -2286,7 +2481,7 @@ class RAGConfigWindow(ctk.CTkToplevel):
             to=20,
             variable=self.top_k_var,
             command=update_top_k_label,
-            width=150
+            width=150,
         )
         top_k_slider.pack(side="left", padx=(5, 0))
 
@@ -2298,14 +2493,12 @@ class RAGConfigWindow(ctk.CTkToplevel):
             score_frame,
             text="Minimum Score Threshold:",
             font=ctk.CTkFont(size=11),
-            anchor="w"
+            anchor="w",
         ).pack(side="left", padx=(0, 10))
 
         self.score_var = ctk.DoubleVar(value=0.3 if self.rag else 0.3)
         score_label = ctk.CTkLabel(
-            score_frame,
-            text=f"{self.score_var.get():.2f}",
-            width=40
+            score_frame, text=f"{self.score_var.get():.2f}", width=40
         )
         score_label.pack(side="left", padx=(5, 0))
 
@@ -2320,7 +2513,7 @@ class RAGConfigWindow(ctk.CTkToplevel):
             to=1.0,
             variable=self.score_var,
             command=update_score_label,
-            width=150
+            width=150,
         )
         score_slider.pack(side="left", padx=(5, 0))
 
@@ -2332,7 +2525,7 @@ class RAGConfigWindow(ctk.CTkToplevel):
             chunk_frame,
             text="Chunk Parameters",
             font=ctk.CTkFont(size=14, weight="bold"),
-            text_color=("white", "white")
+            text_color=("white", "white"),
         ).pack(anchor="w", pady=(0, 10))
 
         # Chunk Size
@@ -2340,17 +2533,12 @@ class RAGConfigWindow(ctk.CTkToplevel):
         chunk_size_frame.pack(fill="x", pady=5)
 
         ctk.CTkLabel(
-            chunk_size_frame,
-            text="Chunk Size:",
-            font=ctk.CTkFont(size=11),
-            anchor="w"
+            chunk_size_frame, text="Chunk Size:", font=ctk.CTkFont(size=11), anchor="w"
         ).pack(side="left", padx=(0, 10))
 
         self.chunk_size_var = ctk.IntVar(value=1000 if self.rag else 1000)
         chunk_size_label = ctk.CTkLabel(
-            chunk_size_frame,
-            text=str(self.chunk_size_var.get()),
-            width=50
+            chunk_size_frame, text=str(self.chunk_size_var.get()), width=50
         )
         chunk_size_label.pack(side="left", padx=(5, 0))
 
@@ -2365,7 +2553,7 @@ class RAGConfigWindow(ctk.CTkToplevel):
             to=5000,
             variable=self.chunk_size_var,
             command=update_chunk_size_label,
-            width=150
+            width=150,
         )
         chunk_size_slider.pack(side="left", padx=(5, 0))
 
@@ -2373,7 +2561,7 @@ class RAGConfigWindow(ctk.CTkToplevel):
             chunk_size_frame,
             text="tokens",
             font=ctk.CTkFont(size=10),
-            text_color=("gray70", "gray50")
+            text_color=("gray70", "gray50"),
         ).pack(side="left", padx=(5, 0))
 
         # Chunk Overlap
@@ -2384,14 +2572,12 @@ class RAGConfigWindow(ctk.CTkToplevel):
             chunk_overlap_frame,
             text="Chunk Overlap:",
             font=ctk.CTkFont(size=11),
-            anchor="w"
+            anchor="w",
         ).pack(side="left", padx=(0, 10))
 
         self.chunk_overlap_var = ctk.IntVar(value=200 if self.rag else 200)
         chunk_overlap_label = ctk.CTkLabel(
-            chunk_overlap_frame,
-            text=str(self.chunk_overlap_var.get()),
-            width=50
+            chunk_overlap_frame, text=str(self.chunk_overlap_var.get()), width=50
         )
         chunk_overlap_label.pack(side="left", padx=(5, 0))
 
@@ -2406,7 +2592,7 @@ class RAGConfigWindow(ctk.CTkToplevel):
             to=1000,
             variable=self.chunk_overlap_var,
             command=update_chunk_overlap_label,
-            width=150
+            width=150,
         )
         chunk_overlap_slider.pack(side="left", padx=(5, 0))
 
@@ -2414,7 +2600,7 @@ class RAGConfigWindow(ctk.CTkToplevel):
             chunk_overlap_frame,
             text="tokens",
             font=ctk.CTkFont(size=10),
-            text_color=("gray70", "gray50")
+            text_color=("gray70", "gray50"),
         ).pack(side="left", padx=(5, 0))
 
         # Apply button
@@ -2423,7 +2609,7 @@ class RAGConfigWindow(ctk.CTkToplevel):
             text="Apply Settings",
             command=self._apply_settings,
             font=ctk.CTkFont(size=12, weight="bold"),
-            fg_color=("#4a9eff", "#3b7ac7")
+            fg_color=("#4a9eff", "#3b7ac7"),
         )
         apply_btn.pack(pady=10)
 
@@ -2438,7 +2624,7 @@ class RAGConfigWindow(ctk.CTkToplevel):
             header,
             text="📚 Loaded Documents",
             font=ctk.CTkFont(size=14, weight="bold"),
-            text_color=("white", "white")
+            text_color=("white", "white"),
         ).pack(padx=10, pady=5)
 
         # Document list
@@ -2455,7 +2641,7 @@ class RAGConfigWindow(ctk.CTkToplevel):
                 text="RAG is not initialized.\nPlease wait for the model to load first.",
                 font=ctk.CTkFont(size=12),
                 text_color=("#ff6b6b", "#ff5252"),
-                wraplength=500
+                wraplength=500,
             )
             no_rag_label.pack(pady=50)
 
@@ -2468,7 +2654,7 @@ class RAGConfigWindow(ctk.CTkToplevel):
             text="🔄 Refresh",
             command=self._update_docs_list,
             width=100,
-            fg_color=("#9b59b6", "#7d3c98")
+            fg_color=("#9b59b6", "#7d3c98"),
         )
         refresh_btn.pack(side="left", padx=(0, 10))
 
@@ -2477,7 +2663,7 @@ class RAGConfigWindow(ctk.CTkToplevel):
             text="🗑️ Clear All",
             command=self._clear_all_docs,
             width=100,
-            fg_color=("#ff5555", "#cc4444")
+            fg_color=("#ff5555", "#cc4444"),
         )
         clear_btn.pack(side="left")
 
@@ -2491,7 +2677,7 @@ class RAGConfigWindow(ctk.CTkToplevel):
             stats_frame,
             text="📊 RAG Statistics",
             font=ctk.CTkFont(size=14, weight="bold"),
-            text_color=("white", "white")
+            text_color=("white", "white"),
         ).pack(anchor="w", padx=10, pady=(0, 20))
 
         self.stats_text = ctk.CTkTextbox(stats_frame, wrap="word", height=300)
@@ -2499,14 +2685,17 @@ class RAGConfigWindow(ctk.CTkToplevel):
 
         # Show message if RAG is not available
         if self.rag is None:
-            self.stats_text.insert("1.0", "RAG is not initialized.\nPlease wait for the model to load first.")
+            self.stats_text.insert(
+                "1.0",
+                "RAG is not initialized.\nPlease wait for the model to load first.",
+            )
 
         refresh_btn = ctk.CTkButton(
             parent,
             text="🔄 Refresh Stats",
             command=self._update_stats,
             width=120,
-            fg_color=("#27ae60", "#229954")
+            fg_color=("#27ae60", "#229954"),
         )
         refresh_btn.pack(pady=(0, 10))
 
@@ -2516,10 +2705,11 @@ class RAGConfigWindow(ctk.CTkToplevel):
             if not self.rag:
                 # Initialize RAG if not exists
                 from config import DEFAULT_CONFIG
+
                 self.chat_ui.llm.rag = RAG(
                     DEFAULT_CONFIG["embedding_model"],
                     DEFAULT_CONFIG["rag_path"],
-                    DEFAULT_CONFIG["max_chunk_size"]
+                    DEFAULT_CONFIG["max_chunk_size"],
                 )
         else:
             # Disable RAG
@@ -2553,7 +2743,9 @@ class RAGConfigWindow(ctk.CTkToplevel):
                 for doc in docs:
                     self.doc_listbox.insert("end", f"📄 {doc}\n")
             else:
-                self.doc_listbox.insert("end", "No documents loaded for this conversation.")
+                self.doc_listbox.insert(
+                    "end", "No documents loaded for this conversation."
+                )
         else:
             self.doc_listbox.insert("end", "RAG is disabled or no documents available.")
 
@@ -2563,14 +2755,19 @@ class RAGConfigWindow(ctk.CTkToplevel):
             self.rag.remove_conversation(self.chat_ui.conversation_id)
             self._update_docs_list()
             self._update_stats()
-            self.chat_ui.add_message("System", "🗑️ All documents cleared from this conversation.")
+            self.chat_ui.add_message(
+                "System", "🗑️ All documents cleared from this conversation."
+            )
 
     def _update_stats(self):
         """Update statistics display."""
         self.stats_text.delete("1.0", "end")
 
         if self.rag is None:
-            self.stats_text.insert("1.0", "RAG is not initialized.\nPlease wait for the model to load first.")
+            self.stats_text.insert(
+                "1.0",
+                "RAG is not initialized.\nPlease wait for the model to load first.",
+            )
             return
 
         if self.rag_enabled.get():
@@ -2607,4 +2804,3 @@ Enable it in the Settings tab to use RAG functionality.
 """
 
         self.stats_text.insert("1.0", stats.strip())
-

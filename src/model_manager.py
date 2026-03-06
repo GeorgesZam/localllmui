@@ -5,20 +5,21 @@ This module handles downloading, verifying, and managing LLM models
 from the catalog, with progress tracking and error handling.
 """
 
+import hashlib
+import json
 import os
 import threading
-import hashlib
-from pathlib import Path
-from typing import Optional, Callable, Dict, List
 from dataclasses import dataclass
-import json
+from pathlib import Path
+from typing import Callable, Dict, List, Optional
 
-from model_catalog import ModelInfo, get_model_by_id, MODEL_CATALOG
+from model_catalog import MODEL_CATALOG, ModelInfo, get_model_by_id
 
 
 @dataclass
 class DownloadProgress:
     """Progress information for a model download."""
+
     model_id: str
     downloaded_bytes: int
     total_bytes: int
@@ -31,6 +32,7 @@ class DownloadProgress:
 @dataclass
 class InstalledModel:
     """Information about an installed model."""
+
     model_id: str
     filepath: str
     file_size_bytes: int
@@ -61,7 +63,9 @@ class ModelManager:
         try:
             self.models_dir.mkdir(exist_ok=True)
         except PermissionError:
-            print(f"[ModelManager] Permission denied creating models directory: {models_dir}")
+            print(
+                f"[ModelManager] Permission denied creating models directory: {models_dir}"
+            )
             # Try using a fallback directory in user's home folder
             fallback_dir = Path.home() / ".localllm_models"
             fallback_dir.mkdir(exist_ok=True)
@@ -89,7 +93,7 @@ class ModelManager:
         """Load saved state from disk."""
         if self._state_file.exists():
             try:
-                with open(self._state_file, 'r') as f:
+                with open(self._state_file, "r") as f:
                     data = json.load(f)
                     for model_id, model_data in data.get("installed", {}).items():
                         self._installed_models[model_id] = InstalledModel(**model_data)
@@ -107,13 +111,13 @@ class ModelManager:
                         "filepath": m.filepath,
                         "file_size_bytes": m.file_size_bytes,
                         "installed_date": m.installed_date,
-                        "is_active": m.is_active
+                        "is_active": m.is_active,
                     }
                     for model_id, m in self._installed_models.items()
                 },
-                "active_model": self._active_model_id
+                "active_model": self._active_model_id,
             }
-            with open(self._state_file, 'w') as f:
+            with open(self._state_file, "w") as f:
                 json.dump(data, f, indent=2)
         except Exception as e:
             print(f"[ModelManager] Error saving state: {e}")
@@ -168,18 +172,24 @@ class ModelManager:
             return self._normalize_path(path)
 
         # File not found at stored path - try to relocate in models_dir
-        print(f"[ModelManager] Model file not found at stored path: {path}, attempting to relocate...")
+        print(
+            f"[ModelManager] Model file not found at stored path: {path}, attempting to relocate..."
+        )
         for model_file in self.models_dir.glob("*.gguf"):
             if model_file.stem == model_id or model_id in model_file.name.lower():
                 # Found it! Update the stored path
                 normalized_path = self._normalize_path(model_file)
                 self._installed_models[model_id].filepath = normalized_path
                 self._save_state()
-                print(f"[ModelManager] Relocated model '{model_id}' to: {normalized_path}")
+                print(
+                    f"[ModelManager] Relocated model '{model_id}' to: {normalized_path}"
+                )
                 return normalized_path
 
         # Model file completely missing
-        print(f"[ModelManager] Error: Model file not found for '{model_id}'. Checked: {path}")
+        print(
+            f"[ModelManager] Error: Model file not found for '{model_id}'. Checked: {path}"
+        )
         return None
 
     def set_active_model(self, model_id: str) -> bool:
@@ -213,14 +223,17 @@ class ModelManager:
                 # Try to match with catalog
                 found = False
                 for model in MODEL_CATALOG:
-                    if filepath.name == model.filename or model.id in filepath.name.lower():
+                    if (
+                        filepath.name == model.filename
+                        or model.id in filepath.name.lower()
+                    ):
                         if model.id not in self._installed_models:
                             installed = InstalledModel(
                                 model_id=model.id,
                                 filepath=self._normalize_path(filepath),
                                 file_size_bytes=filepath.stat().st_size,
                                 installed_date="unknown",
-                                is_active=False
+                                is_active=False,
                             )
                             self._installed_models[model.id] = installed
                         found = True
@@ -235,7 +248,7 @@ class ModelManager:
                             filepath=self._normalize_path(filepath),
                             file_size_bytes=filepath.stat().st_size,
                             installed_date="unknown",
-                            is_active=False
+                            is_active=False,
                         )
                         self._installed_models[model_id] = installed
 
@@ -247,7 +260,7 @@ class ModelManager:
         self,
         model_id: str,
         on_progress: Optional[Callable[[DownloadProgress], None]] = None,
-        on_complete: Optional[Callable[[bool, str], None]] = None
+        on_complete: Optional[Callable[[bool, str], None]] = None,
     ) -> threading.Thread:
         """
         Download a model from the catalog.
@@ -280,7 +293,7 @@ class ModelManager:
                     total_bytes=total_bytes,
                     percentage=0.0,
                     speed_mb_s=0.0,
-                    status="downloading"
+                    status="downloading",
                 )
 
                 import time
@@ -292,18 +305,19 @@ class ModelManager:
                         self._current_download.total_bytes = total_size
                         self._current_download.percentage = (
                             (self._current_download.downloaded_bytes / total_size * 100)
-                            if total_size > 0 else 0
+                            if total_size > 0
+                            else 0
                         )
 
                         if on_progress:
                             on_progress(self._current_download)
 
                 # Download with progress
-                print(f"[ModelManager] Downloading {model_info.name} from {model_info.download_url}")
+                print(
+                    f"[ModelManager] Downloading {model_info.name} from {model_info.download_url}"
+                )
                 urllib.request.urlretrieve(
-                    model_info.download_url,
-                    dest_path,
-                    reporthook=progress_callback
+                    model_info.download_url, dest_path, reporthook=progress_callback
                 )
 
                 # Verify file exists
@@ -312,12 +326,13 @@ class ModelManager:
 
                 # Create installed model entry
                 import datetime
+
                 installed = InstalledModel(
                     model_id=model_id,
                     filepath=self._normalize_path(dest_path),
                     file_size_bytes=dest_path.stat().st_size,
                     installed_date=datetime.datetime.now().isoformat(),
-                    is_active=False
+                    is_active=False,
                 )
                 self._installed_models[model_id] = installed
                 self._save_state()
@@ -327,7 +342,9 @@ class ModelManager:
                     on_progress(self._current_download)
 
                 if on_complete:
-                    on_complete(True, f"Model {model_info.name} downloaded successfully!")
+                    on_complete(
+                        True, f"Model {model_info.name} downloaded successfully!"
+                    )
 
             except Exception as e:
                 error_msg = str(e)
@@ -410,4 +427,5 @@ class ModelManager:
     def get_recommended_catalog(self) -> List[ModelInfo]:
         """Get recommended models for display."""
         from model_catalog import get_recommended_models
+
         return get_recommended_models()

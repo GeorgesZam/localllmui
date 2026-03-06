@@ -5,12 +5,12 @@ Manages available skills and their configuration.
 
 import json
 import shutil
-from pathlib import Path
-from typing import Dict, List, Optional
 from dataclasses import dataclass
+from pathlib import Path
+from tkinter import filedialog, messagebox
+from typing import Dict, List, Optional
 
 import customtkinter as ctk
-from tkinter import filedialog, messagebox
 from PIL import Image
 
 
@@ -149,7 +149,7 @@ class SkillsManager:
         try:
             skill_file = self.skills_dir / f"skill_{skill_id}.md"
             if skill_file.exists():
-                return skill_file.read_text(encoding='utf-8')
+                return skill_file.read_text(encoding="utf-8")
         except Exception as e:
             print(f"[Skills] Error reading skill content for {skill_id}: {e}")
         return None
@@ -615,7 +615,7 @@ class CreateSkillDialog(ctk.CTkToplevel):
             fg_color="transparent",
             scrollbar_button_color="#4a9eff",
             scrollbar_button_hover_color="#3b7ac7",
-            height=450  # Fixed height for scroll area
+            height=450,  # Fixed height for scroll area
         )
         scroll_container.grid(row=1, column=0, sticky="nsew", padx=30, pady=(0, 5))
 
