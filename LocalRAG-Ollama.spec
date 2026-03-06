@@ -8,9 +8,9 @@ Benefits:
 - Better GPU optimization
 - No need to bundle models
 - Easier model switching
+- AUTO-INSTALLS Ollama on first run!
 
-Requirements:
-- User must install Ollama from https://ollama.com/download
+The app will automatically download and install Ollama if not present.
 """
 
 import os

@@ -10,33 +10,26 @@ A lightweight version of LocalRAG that uses [Ollama](https://ollama.com) instead
 | Models Bundled | Yes (limited) | No (unlimited) |
 | GPU Support | Basic | Excellent |
 | Performance | Good | Better |
-| Installation | One file | One file + Ollama |
+| Installation | One file | One file (auto-installs Ollama) |
 
 ## Installation
 
-### Step 1: Install Ollama
-
-1. Download from: https://ollama.com/download
-2. Run the installer
-3. Verify installation: `ollama --version`
-
-### Step 2: Pull a Model
-
-```bash
-ollama pull qwen2.5:0.5b
-```
-
-Available models:
-- `qwen2.5:0.5b` - Smallest, fastest (~400MB)
-- `qwen2.5:1.5b` - Better quality (~900MB)
-- `phi3:mini` - Great performance (~2GB)
-- `llama3.2:1b` - Meta's model (~1GB)
-
-### Step 3: Run LocalRAG
+### Just Run It!
 
 1. Download `LocalRAG-Ollama.exe`
 2. Double-click to run
-3. Start chatting!
+3. **First launch only:** The app will automatically download and install Ollama
+4. Start chatting!
+
+That's it - no manual installation required!
+
+### What Happens on First Launch?
+
+1. App checks if Ollama is installed
+2. If not, it downloads the installer (~100 MB)
+3. Runs the installer automatically
+4. Pulls the default model (qwen2.5:0.5b, ~400 MB)
+5. Starts the app!
 
 ## Model Switching
 
