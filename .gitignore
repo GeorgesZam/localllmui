@@ -4,7 +4,6 @@ build/
 dist/
 *.spec
 !LocalRAG.spec  # Exception: we need this file for PyInstaller builds
-!LocalRAG-Ollama.spec  # Exception for Ollama version
 .DS_Store
 
 # Virtual Environment
