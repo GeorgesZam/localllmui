@@ -43,8 +43,15 @@ else:
 from conversations import ConversationManager
 from ui import ChatUI, ModelCatalogWindow, RAGConfigWindow
 from skills_manager import SkillsManager, SkillExecutor
-from model_manager import ModelManager
 import config
+
+# Import the right model manager based on platform
+if USE_OLLAMA:
+    from ollama_model_manager import OllamaModelManager as ModelManager
+    print("[App] Using Ollama Model Manager")
+else:
+    from model_manager import ModelManager
+    print("[App] Using llama_cpp Model Manager")
 
 
 def get_resource_path(relative_path: str) -> str:
