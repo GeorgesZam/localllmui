@@ -60,6 +60,8 @@ a = Analysis(
         'customtkinter.windows.widgets',
         # Ollama engine
         'ollama_engine',
+        'ollama_catalog',
+        'ollama_model_manager',
         'requests',
         'urllib3',
         # RAG components

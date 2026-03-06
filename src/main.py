@@ -39,7 +39,6 @@ else:
     from llm import LLMEngine
     print("[App] Using llama_cpp engine (macOS/Linux)")
     USE_OLLAMA = False
-    print("[App] Using llama_cpp engine")
 from conversations import ConversationManager
 from ui import ChatUI, ModelCatalogWindow, RAGConfigWindow
 from skills_manager import SkillsManager, SkillExecutor
