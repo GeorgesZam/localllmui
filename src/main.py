@@ -23,7 +23,15 @@ if src_path not in sys.path:
 import customtkinter as ctk
 from tkinter import filedialog, messagebox
 
-from llm import LLMEngine
+# Try to use Ollama engine (preferred), fallback to llama_cpp
+try:
+    from ollama_engine import OllamaEngine as LLMEngine
+    USE_OLLAMA = True
+    print("[App] Using Ollama engine")
+except ImportError:
+    from llm import LLMEngine
+    USE_OLLAMA = False
+    print("[App] Using llama_cpp engine")
 from conversations import ConversationManager
 from ui import ChatUI, ModelCatalogWindow, RAGConfigWindow
 from skills_manager import SkillsManager, SkillExecutor
@@ -98,6 +106,18 @@ class App(ctk.CTk):
     def _initialize_models(self):
         def init():
             try:
+                # Check Ollama status if using Ollama engine
+                if USE_OLLAMA:
+                    from ollama_engine import OllamaInstaller
+                    if not OllamaInstaller.is_ollama_installed():
+                        self.message_queue.put(("status", "Ollama not found - please install"))
+                        # Offer to install
+                        self.message_queue.put(("ollama_not_installed", None))
+                        return
+                    if not OllamaInstaller.is_ollama_running():
+                        self.message_queue.put(("status", "Starting Ollama server..."))
+                        OllamaInstaller.start_ollama()
+
                 self.llm.load(on_progress=lambda msg: self.message_queue.put(("status", msg)))
                 self.message_queue.put(("initialized", None))
             except Exception as e:
@@ -129,6 +149,24 @@ class App(ctk.CTk):
                 elif msg_type == "error":
                     self.ui.set_status(f"Error: {data}", is_error=True)
                     messagebox.showerror("Error", data)
+
+                elif msg_type == "ollama_not_installed":
+                    self.ui.set_status("Ollama required", is_error=True)
+                    result = messagebox.askyesno(
+                        "Ollama Required",
+                        "Ollama is not installed on this computer.\n\n"
+                        "Ollama is required to run this application.\n\n"
+                        "Would you like to download the installer now?\n\n"
+                        "(You can also install it manually from https://ollama.com/download)"
+                    )
+                    if result:
+                        import webbrowser
+                        webbrowser.open("https://ollama.com/download")
+                        messagebox.showinfo(
+                            "Installation Required",
+                            "Please complete the Ollama installation and restart this application."
+                        )
+                    self.quit()
 
                 elif msg_type == "response":
                     self.ui.stream(data)

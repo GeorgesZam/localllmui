@@ -1,0 +1,95 @@
+name: Build Local RAG - Ollama Version
+
+on:
+  push:
+    branches: [feature/ollama-backend]
+    tags:
+      - 'ollama-v*'
+  workflow_dispatch:
+
+jobs:
+  build-windows-ollama:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller
+
+      - name: Setup embedding model (for RAG)
+        run: |
+          python -c "from sentence_transformers import SentenceTransformer; model = SentenceTransformer('BAAI/bge-small-en-v1.5'); model.save('models/embedding_model')"
+
+      - name: Build with PyInstaller (Ollama version)
+        run: |
+          pyinstaller --clean --noconfirm LocalRAG-Ollama.spec
+
+      - name: Verify build output
+        run: |
+          Write-Host "Checking build output..."
+          if (Test-Path "dist/LocalRAG-Ollama.exe") {
+            $size = (Get-Item "dist/LocalRAG-Ollama.exe").Length / 1MB
+            Write-Host "[OK] Build successful! Size: $([math]::Round($size, 2)) MB"
+            Write-Host "This is the OLLAMA version - user must install Ollama separately"
+          } else {
+            Write-Host "[FAIL] Build failed - exe not found"
+            Get-ChildItem -Path dist -Recurse | Write-Host
+            exit 1
+          }
+        shell: pwsh
+
+      - name: Create distribution zip
+        run: |
+          Compress-Archive -Path dist/LocalRAG-Ollama.exe -DestinationPath LocalRAG-Ollama-Windows.zip
+        shell: pwsh
+
+      - name: Upload Windows artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: LocalRAG-Ollama-Windows
+          path: LocalRAG-Ollama-Windows.zip
+          retention-days: 30
+
+  create-release:
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: [build-windows-ollama]
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            artifacts/LocalRAG-Ollama-Windows/LocalRAG-Ollama-Windows.zip
+          generate_release_notes: true
+          body: |
+            ## LocalRAG - Ollama Version
+
+            This version uses [Ollama](https://ollama.com) instead of llama_cpp.
+
+            ### Requirements
+            - You must install Ollama first: https://ollama.com/download
+            - Run `ollama pull qwen2.5:0.5b` (or any other model)
+
+            ### Benefits
+            - Smaller download size
+            - Better performance
+            - Easy model switching
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
